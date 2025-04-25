@@ -28,8 +28,20 @@ const __dirname = dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3001;
 
-// --- NEW: Create HTTP Server and Socket.IO Server ---
+// --- NEW: Create HTTP Server ---
 const server = http.createServer(app);
+
+// --- MODIFIED: Moved CORS origins definition here ---
+const allowedOrigins = [
+  process.env.FRONTEND_URL, // Primary origin from env
+  "http://localhost:5173", // Explicitly allow default dev origin
+  "https://infiniteadventure.co", // Explicitly allow the origin seen in logs
+].filter(Boolean); // Filter out undefined/null if FRONTEND_URL is not set
+
+const uniqueAllowedOrigins = [...new Set(allowedOrigins)]; // Remove duplicates
+console.log("Socket.IO Server CORS Allowed Origins:", uniqueAllowedOrigins);
+
+// --- Initialize Socket.IO Server ---
 const io = new SocketIOServer(server, {
   cors: {
     origin: uniqueAllowedOrigins, // Use the array of allowed origins
@@ -37,7 +49,6 @@ const io = new SocketIOServer(server, {
     credentials: true,
   },
 });
-// ---------------------------------------------------
 
 // --- Create Upload Directory ---
 const UPLOAD_DIR = path.join(__dirname, "uploads", "character_images");
@@ -1909,16 +1920,6 @@ app.get("/health", (req, res) => res.status(200).send("OK"));
 // Store active connections, mapping sessionId to a map of userId to socket
 // Allows finding specific users or all users in a session
 const sessionSockets = new Map(); // Removed TypeScript syntax
-
-// --- MODIFIED: More explicit CORS origins for Socket.IO ---
-const allowedOrigins = [
-  process.env.FRONTEND_URL, // Primary origin from env
-  "http://localhost:5173", // Explicitly allow default dev origin
-  "https://infiniteadventure.co", // Explicitly allow the origin seen in logs
-].filter(Boolean); // Filter out undefined/null if FRONTEND_URL is not set
-
-const uniqueAllowedOrigins = [...new Set(allowedOrigins)]; // Remove duplicates
-console.log("Socket.IO CORS Allowed Origins:", uniqueAllowedOrigins);
 
 io.on("connection", (socket) => {
   console.log(`WebSocket client connected: ${socket.id}`);
