@@ -34,6 +34,7 @@ const io = new SocketIOServer(server, {
   cors: {
     origin: process.env.FRONTEND_URL || "http://localhost:5173", // Allow frontend origin
     methods: ["GET", "POST"],
+    credentials: true, // <-- ADD THIS LINE
   },
 });
 // ---------------------------------------------------
