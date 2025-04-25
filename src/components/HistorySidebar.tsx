@@ -113,7 +113,7 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
           {history.map((turn, index) => {
             const actingPlayerName = getActingPlayerName(turn);
             const turnTitle = turn.actionTaken
-              ? `Turn ${turn.turnIndex}: ${
+              ? `Turn ${turn.turnIndex + 1}: ${
                   actingPlayerName ? `(${actingPlayerName}) ` : ""
                 }${turn.actionTaken}`
               : "Turn 0: Starting Point";
