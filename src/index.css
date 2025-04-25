@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+body {
+  @apply bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200;
+}
+
+/* Example of a custom component layer if you needed one */
+/* @layer components {
+  .custom-btn {
+    @apply py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-700;
+  }
+} */
+
+/* Style scrollbars (optional, browser-specific) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent; /* dark:bg-gray-700 */
+}
+::-webkit-scrollbar-thumb {
+  background-color: #545e6f; /* dark:bg-gray-500 */
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #c1c1c1; /* dark:bg-gray-500 */
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: transparent; /* dark:bg-gray-400 */
+}
+
+/* Add focus-visible utility styles (good practice) */
+*:focus-visible {
+  @apply outline-none ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-gray-900;
+}
+
+.cormorant-upright-light {
+  font-family: "Cormorant Upright", serif;
+  font-weight: 300;
+  font-style: normal;
+}
+
+.cormorant-upright-regular {
+  font-family: "Cormorant Upright", serif;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.cormorant-upright-medium {
+  font-family: "Cormorant Upright", serif;
+  font-weight: 500;
+  font-style: normal;
+}
+
+.cormorant-upright-semibold {
+  font-family: "Cormorant Upright", serif;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.cormorant-upright-bold {
+  font-family: "Cormorant Upright", serif;
+  font-weight: 700;
+  font-style: normal;
+}
