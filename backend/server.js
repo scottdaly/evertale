@@ -1058,12 +1058,13 @@ User Instruction: ${initialUserInstruction}`;
 
     // --- Insert First Turn --- (No change needed here immediately, acting_player fields are for subsequent turns)
     const turnInsertSql = `INSERT INTO turns(
-        turn_id, session_id, turn_index, scenario_text, image_url, image_prompt, suggested_actions, action_taken, time_of_day, is_same_location, characters, 
-        created_at 
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`; // 11 placeholders
+        turn_id, session_id, turn_index, scenario_text, image_url, image_prompt, suggested_actions, action_taken, time_of_day, is_same_location, characters,
+        acting_player_user_id, acting_player_index, -- Add these columns
+        created_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`; // 13 placeholders now
 
     const turnParams = [
-      // Should be 11 params
+      // Should be 13 params now
       turnId,
       sessionId,
       0, // turn_index
@@ -1071,10 +1072,12 @@ User Instruction: ${initialUserInstruction}`;
       imageUrl,
       initialTurnData.image_prompt,
       JSON.stringify(initialTurnData.suggested_actions || []),
-      null, // action_taken
+      null, // action_taken (none for turn 0)
       initialTurnData.timeOfDay,
       initialTurnData.isSameLocation ? 1 : 0,
       JSON.stringify(initialTurnData.characters || []),
+      null, // acting_player_user_id (none for turn 0)
+      null, // acting_player_index (none for turn 0)
     ];
 
     // ADD DEBUG LOGGING HERE
