@@ -185,6 +185,12 @@ async function initializeDatabase() {
     await addColumn("sessions", "character_name", "TEXT");
     await addColumn("sessions", "character_gender", "TEXT");
     await addColumn("sessions", "character_image_url", "TEXT");
+    // --- NEW: Goal columns ---
+    await addColumn("sessions", "game_goal", "TEXT");
+    await addColumn("sessions", "goal_prerequisites", "TEXT"); // JSON array string
+    await addColumn("sessions", "met_prerequisites", "TEXT DEFAULT '[]'"); // JSON array string, default empty
+    await addColumn("sessions", "is_goal_met", "INTEGER DEFAULT 0"); // Boolean (0 or 1)
+    // --- End Goal columns ---
 
     // Add to 'turns'
     await addColumn("turns", "time_of_day", "TEXT");
@@ -431,51 +437,76 @@ function generateCharacterPrompt(theme, name, gender, description) {
 // --- The Core LLM Prompt  ---
 // Keep this focused on the task and JSON structure requirements
 const GM_BASE_PROMPT = `
-You are: An expert AI Game Master (GM) facilitating a dynamic, text-based role-playing adventure game. Your purpose is to create and manage an engaging, interactive narrative experience for potentially multiple users (the players) in the same session.
+You are: An expert AI Game Master (GM) facilitating a dynamic, text-based role-playing adventure game. Your purpose is to create and manage an engaging, interactive narrative experience for potentially multiple users (the players) in the same session, guiding them towards a hidden goal.
 
-Core Objective: To act as the eyes, ears, and rules engine of the game world. You will interpret the acting player's action, determine outcomes based on the established genre and context, and advance the story for everyone in the session. Crucially, your entire response MUST be a single, valid JSON object containing the narrative, an image prompt, suggested actions, location status, time of day, and details of non-player characters (NPCs) present.
+Core Objective: To act as the eyes, ears, and rules engine of the game world. You will interpret the acting player's action, determine outcomes, advance the story, and track progress towards a pre-defined game goal. Crucially, your entire response MUST be a single, valid JSON object.
 
 Session Players & Acting Player:
-{{playerList}} 
+{{playerList}}
 (The player marked '[Acting Player]' is the one performing the action for the current turn.)
+
+Goal & Prerequisites Context (Provided for turns AFTER the first):
+- Game Goal: {{gameGoal}}
+- All Prerequisites: {{goalPrerequisites}}
+- Prerequisites Met So Far: {{metPrerequisites}}
 
 Required JSON Output Structure:
 
+--- IF Initialization (Turn 0 / First Turn): ---
 {
-  "narrative": "String containing the descriptive text of the current scene, events, and outcomes of the acting player's last action. Incorporate player character names where appropriate. Address the ACTING player primarily as 'You'. Refer to other players by their character name.",
-  "timeOfDay": "String containing the time of day of the current scene, based on the immediate narrative.",
-  "image_prompt": "String containing a descriptive prompt suitable for a text-to-image AI, capturing the essence of the scene described in 'narrative' from the ACTING player's perspective. Include genre style keywords. Describe the environment and any NPCs present. DO NOT include player characters in the image prompt.",
-  "suggested_actions": [
-    "String suggesting a possible action the ACTING player could take (relevant to the scene).",
-    "String suggesting another possible action for the ACTING player.",
-    "String suggesting a third, potentially unexpected or broader action.",
-    "String suggesting a fourth, possibly absurd or non-sequitur action."
-  ],
-  "isSameLocation": "Boolean indicating if the players are in the same general location as the previous scene, or if they have moved to a new location.",
-  "characters": [
-    {
-      "name": "String containing the name of a non-player character (NPC) involved in the immediate scene.",
-      "description": "String containing the description of the NPC.",
-      "appearance": "String containing a detailed description of the NPC's appearance, clothing, etc.",
-      "opinionOfPlayer": "String containing the NPC's opinion towards the ACTING player, or their thoughts on the situation."
-    }
-    // Add more NPC objects if multiple NPCs are present and interacting.
+  "narrative": "String: The initial scene description. DO NOT mention the goal or prerequisites.",
+  "timeOfDay": "String: Time of day for the scene.",
+  "image_prompt": "String: Image prompt for the initial scene (acting player's perspective, no player characters).",
+  "suggested_actions": ["String: Action 1", "String: Action 2", "String: Action 3 (unexpected)", "String: Action 4 (absurd)"],
+  "isSameLocation": true, // Always true for the first turn
+  "characters": [], // Usually empty for the first turn unless specified by theme
+  "game_goal": "String: A clear, achievable objective for the players relevant to the theme (e.g., 'Find the lost amulet', 'Escape the haunted mansion', 'Deliver the secret message'). This goal is HIDDEN from the players initially.",
+  "goal_prerequisites": [
+    "String: A necessary step/condition to achieve the goal (e.g., 'Learn the amulet's location').",
+    "String: Another prerequisite (e.g., 'Find the key to the crypt').",
+    "String: Potentially a third prerequisite."
+    // Keep prerequisites concise and logical steps towards the goal. 2-4 prerequisites are ideal.
   ]
 }
 
+--- IF Subsequent Turn (Turn 1+): ---
+{
+  "narrative": "String: Description of the scene, events, and outcomes of the acting player's action. May subtly hint if a prerequisite was met or if the final goal is achieved.",
+  "timeOfDay": "String: Updated time of day.",
+  "image_prompt": "String: Updated image prompt reflecting the new scene/events.",
+  "suggested_actions": ["String: Next player's action 1", "String: Next player's action 2", "String: Next player's action 3 (unexpected)", "String: Next player's action 4 (absurd)"],
+  "isSameLocation": "Boolean: Did the players move location?",
+  "characters": [ /* Updated list of NPCs present */ { "name": "...", "description": "...", "appearance": "...", "opinionOfPlayer": "..." } ],
+  "updated_met_prerequisites": [
+    "String: List containing ALL prerequisites met SO FAR, including any newly met by the current action."
+    // Compare the action against the UNMET prerequisites from the input {{metPrerequisites}} and {{goalPrerequisites}}.
+    // If the action fulfills an unmet prerequisite, add it to this list. Include all previously met ones.
+  ],
+  "is_goal_met_this_turn": "Boolean: Did the player's action successfully achieve the 'Game Goal' AND were ALL 'goal_prerequisites' ALREADY met (present in the input '{{metPrerequisites}}' list) BEFORE this action was taken?"
+}
+
+
 Game Flow & Instructions:
-- Initialization (First Turn): Given a Genre and the initial Player Character details (in {{playerList}}), create a compelling starting scenario, generate an appropriate image prompt, and suggest 4 actions they can take. Output JSON.
-- Subsequent Turns: Given the previous narrative context, the full player list ({{playerList}}), and the specific Player Action from the indicated [Acting Player], interpret intent, determine outcome, update scene, generate new narrative, new image prompt, and new relevant suggested actions for the NEXT player. Output JSON.
+- Initialization (First Turn / "Start a new adventure..."): Given Genre and Player details ({{playerList}}), create a starting scenario, image prompt, actions, AND a hidden 'game_goal' and 'goal_prerequisites' list. Output the Turn 0 JSON structure.
+- Subsequent Turns: Given history, player list ({{playerList}}), the current 'game_goal', 'goal_prerequisites', 'met_prerequisites' list, and the Player Action from the [Acting Player]:
+    1. Interpret action and determine outcome.
+    2. Update the narrative, image prompt, suggested actions (for the *next* player), time, location status, and NPCs.
+    3. Evaluate if the action fulfills any *unmet* prerequisites.
+    4. Construct the 'updated_met_prerequisites' list (including all previously met + newly met ones).
+    5. Evaluate if the action fulfills the 'game_goal' *and* if all 'goal_prerequisites' were already met *before* this turn. Set 'is_goal_met_this_turn' accordingly.
+    6. Output the Subsequent Turn JSON structure.
 - JSON Format Absolutely Mandatory: Your *entire* output must be *only* the JSON object. No introductory text, no explanations, just the JSON. Ensure it's valid.
-- Genre Adherence: Strictly maintain the tone, logic, and visual style (fantasy art, cyberpunk, noir film, photorealistic etc.) of the genre in narrative, image_prompt, and suggestions.
-- Player Agency: Respond logically to the acting player's action. Suggested actions are hints for the *next* player. Avoid railroading.
-- Characters (NPCs): Only include non-player characters (NPCs) in the 'characters' list if they are actively present and relevant to the immediate scene. It is fine for the list to be empty. DO NOT include any player characters from {{playerList}} in this 'characters' array.
-- Immersive Narrative: Write engaging descriptions. Primarily address the ACTING player as "You". Refer to other players by their names (e.g., "While you search the desk, Kael notices...").
-- Consistent Image Prompts: Accurately reflect the narrative's visuals and mood from the acting player's viewpoint. Include genre/style keywords. Describe NPCs if present. Never explicitly name or describe player characters in the image prompt itself.
-- Suggested Actions: Actions should be relevant possibilities for the player whose turn is *next*. The first option or two should be relevant to the current scenario, but always make two of the suggestions completely absurd and unexpected, even non-sequiters.
+- Prerequisite Logic: An action can only fulfill a prerequisite if it logically follows the narrative and the prerequisite itself. Don't fulfill prerequisites randomly.
+- Goal Achievement Logic: The 'game_goal' can ONLY be achieved ('is_goal_met_this_turn: true') if: a) the player's action directly accomplishes the goal text, AND b) *all* items in the 'goal_prerequisites' list were already present in the 'met_prerequisites' list *provided as input* for this turn.
+- Hidden Information: Do NOT explicitly state the goal or the full prerequisite list to the players in the narrative unless the narrative itself logically reveals it (e.g., finding a quest scroll). Progress should feel natural.
+- Genre Adherence: Maintain tone, logic, style.
+- Player Agency: Respond logically, suggestions are hints.
+- Characters (NPCs): Only include relevant, present NPCs. Do NOT include player characters in the 'characters' array.
+- Immersive Narrative: Address ACTING player as "You". Use other player names.
+- Consistent Image Prompts: Reflect narrative, mood, style. No player characters. Describe NPCs.
+- Suggested Actions: Relevant for the *next* player. Include 2 absurd/unexpected options.
 - World Consistency: Maintain continuity.
-- No Meta-Gaming: Act as the GM within the game world.
-- Clarity: Ensure the narrative clearly explains the situation and outcomes for all players present.
+- No Meta-Gaming. Clarity.
 `.trim();
 
 // --- Provider-Specific API Call Functions ---
@@ -551,8 +582,10 @@ async function callAnthropic(systemPrompt, userPrompt) {
 }
 
 // --- **UPDATED** Central LLM Dispatcher with Retries and Validation ---
-async function callLLM(promptContent, maxRetries = 3) {
+async function callLLM(promptContent, maxRetries = 3, isInitialTurn = false) {
+  // Add flag
   let lastError = null;
+  // Inject the base system prompt here, potentially modifying it slightly based on context if needed
   const systemPrompt = GM_BASE_PROMPT; // Use the shared system prompt
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -611,38 +644,19 @@ async function callLLM(promptContent, maxRetries = 3) {
       }
 
       // 3. Validate Structure and Types (Centralized)
+      // Basic validation (common fields)
       if (
         typeof parsedJson.narrative !== "string" ||
         typeof parsedJson.image_prompt !== "string" ||
         !Array.isArray(parsedJson.suggested_actions) ||
         !parsedJson.suggested_actions.every(
           (action) => typeof action === "string"
-        )
-      ) {
-        console.error(
-          `LLM Response (Attempt ${attempt}/${maxRetries}) - Missing/Invalid Keys or Types.`
-        );
-        console.error(
-          `Parsed Object with issue: ${JSON.stringify(parsedJson, null, 2)}`
-        );
-        throw new Error(
-          "LLM JSON response missing required keys or has invalid types."
-        );
-      }
-
-      // --- NEW: Validate additional fields ---
-      let validationError = null;
-      if (typeof parsedJson.timeOfDay !== "string") {
-        validationError =
-          "Missing or invalid type for 'timeOfDay' (should be string).";
-      } else if (typeof parsedJson.isSameLocation !== "boolean") {
-        validationError =
-          "Missing or invalid type for 'isSameLocation' (should be boolean).";
-      } else if (!Array.isArray(parsedJson.characters)) {
-        validationError =
-          "Missing or invalid type for 'characters' (should be array).";
-      } else if (
+        ) ||
+        typeof parsedJson.timeOfDay !== "string" || // Moved basic check here
+        typeof parsedJson.isSameLocation !== "boolean" || // Moved basic check here
+        !Array.isArray(parsedJson.characters) || // Moved basic check here
         !parsedJson.characters.every(
+          // Moved basic check here
           (char) =>
             typeof char.name === "string" &&
             typeof char.description === "string" &&
@@ -650,8 +664,47 @@ async function callLLM(promptContent, maxRetries = 3) {
             typeof char.opinionOfPlayer === "string"
         )
       ) {
-        validationError =
-          "Invalid structure or types within 'characters' array.";
+        console.error(
+          `LLM Response (Attempt ${attempt}/${maxRetries}) - Missing/Invalid Common Keys or Types.`
+        );
+        console.error(
+          `Parsed Object with issue: ${JSON.stringify(parsedJson, null, 2)}`
+        );
+        throw new Error(
+          "LLM JSON response missing required common keys or has invalid types."
+        );
+      }
+
+      // --- NEW: Goal/Prerequisite Field Validation based on turn type ---
+      let validationError = null;
+      if (isInitialTurn) {
+        if (
+          typeof parsedJson.game_goal !== "string" ||
+          parsedJson.game_goal.trim() === ""
+        ) {
+          validationError =
+            "Missing or empty 'game_goal' (string) on initial turn.";
+        } else if (
+          !Array.isArray(parsedJson.goal_prerequisites) ||
+          !parsedJson.goal_prerequisites.every((p) => typeof p === "string")
+        ) {
+          validationError =
+            "Missing or invalid 'goal_prerequisites' (array of strings) on initial turn.";
+        }
+      } else {
+        // Subsequent turn validation
+        if (
+          !Array.isArray(parsedJson.updated_met_prerequisites) ||
+          !parsedJson.updated_met_prerequisites.every(
+            (p) => typeof p === "string"
+          )
+        ) {
+          validationError =
+            "Missing or invalid 'updated_met_prerequisites' (array of strings) on subsequent turn.";
+        } else if (typeof parsedJson.is_goal_met_this_turn !== "boolean") {
+          validationError =
+            "Missing or invalid 'is_goal_met_this_turn' (boolean) on subsequent turn.";
+        }
       }
 
       if (validationError) {
@@ -845,9 +898,6 @@ async function generateImageWithOpenAI(prompt) {
   return `data:image/png;base64,${image_base64}`;
 }
 // --- API Routes (/start and /action) ---
-// No changes needed inside the route handlers themselves,
-// as the selection, dispatch, and enhanced error handling
-// are now within callLLM.
 
 // POST /api/game/start - Start a new game
 app.post("/api/game/start", authenticateToken, async (req, res) => {
@@ -897,22 +947,35 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
       } game with theme: ${theme}, Name: ${characterName}, Gender: ${characterGender}`
     );
 
-    // Prepare the initial prompt, replacing placeholders
-    // No changes needed here immediately, but will need refinement later for MP context
-    let initialSystemPrompt = GM_BASE_PROMPT.replace(
-      /{{characterName}}/g,
-      characterName
-    ).replace(/{{characterGender}}/g, characterGender);
-    initialSystemPrompt = initialSystemPrompt.replace(
-      /{{characterImageUrl}}/g,
-      characterImageUrl || "No image provided"
+    const initialUserInstruction = `Start a new adventure game in the ${theme} genre for character ${characterName} (${characterGender}). Generate the initial scenario, hidden goal, and hidden prerequisites.`;
+    // --- Inject Player List Placeholder into Base Prompt ---
+    const playerListString = `- ${characterName} (${characterGender}, Index: 0) [Acting Player]`; // Only creator initially
+    const initialSystemPrompt = GM_BASE_PROMPT.replace(
+      /{{playerList}}/g,
+      playerListString
     );
+    // --- No Goal/Prereq Context on First Turn ---
+    const promptForLLM = `${initialSystemPrompt}
 
-    const initialUserInstruction = `Start a new adventure game in the ${theme} genre for character ${characterName} (${characterGender}). Generate the initial scenario...`;
-    const combinedInitialPrompt = `${initialSystemPrompt}\n\nUser Instruction: ${initialUserInstruction}`;
+User Instruction: ${initialUserInstruction}`;
 
     console.log("--- Sending Initial Prompt to LLM ---");
-    const initialTurnData = await callLLM(combinedInitialPrompt);
+    // Pass true for isInitialTurn to callLLM for validation
+    const initialTurnData = await callLLM(promptForLLM, 3, true);
+
+    // --- Extract Goal/Prerequisites from initialTurnData (specific to Turn 0) ---
+    const gameGoal = initialTurnData.game_goal;
+    const goalPrerequisites = initialTurnData.goal_prerequisites || []; // Ensure array
+
+    if (!gameGoal || goalPrerequisites.length === 0) {
+      // This should be caught by callLLM validation, but double-check
+      throw new Error(
+        "LLM failed to provide game_goal or goal_prerequisites on initialization."
+      );
+    }
+    console.log(` -> Game Goal Set: ${gameGoal}`);
+    console.log(` -> Prerequisites Set: ${JSON.stringify(goalPrerequisites)}`);
+    // --------------------------------------------------------------------------
 
     let imageUrl;
     switch (ACTIVE_IMAGE_PROVIDER) {
@@ -936,17 +999,19 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
     // --- DB Ops ---
     await db.run("BEGIN");
 
-    // --- Insert Session --- (Add multiplayer fields)
+    // --- Insert Session --- (Add multiplayer AND goal fields)
     const sessionInsertSql = `
       INSERT INTO sessions (
-        session_id, user_id, theme, 
+        session_id, user_id, theme,
         -- Old character fields (kept for now)
-        character_name, character_gender, character_image_url, 
+        character_name, character_gender, character_image_url,
         -- Multiplayer fields
-        is_multiplayer, max_players, current_player_index, invite_code, 
+        is_multiplayer, max_players, current_player_index, invite_code,
+        -- Goal fields
+        game_goal, goal_prerequisites, met_prerequisites, is_goal_met,
         created_at, last_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
-    `;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
+    `; // 16 placeholders
     const sessionParams = [
       sessionId,
       userId, // User who created the session
@@ -958,10 +1023,16 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
       isGameMultiplayer ? gameMaxPlayers : null, // max_players
       isGameMultiplayer ? 0 : null, // current_player_index (starts at 0 for MP)
       inviteCode, // invite_code (null for SP)
+      // --- NEW Goal Params ---
+      gameGoal,
+      JSON.stringify(goalPrerequisites), // Store as JSON string
+      "[]", // Initial met prerequisites (empty array as JSON string)
+      0, // Initial is_goal_met (false)
+      // --- End Goal Params ---
     ];
     await db.run(sessionInsertSql, sessionParams);
     console.log(
-      `Inserted session ${sessionId} (Multiplayer: ${isGameMultiplayer}) into DB.`
+      `Inserted session ${sessionId} (Multiplayer: ${isGameMultiplayer}, Goal: ${gameGoal}) into DB.`
     );
 
     // --- Insert Creator into session_players --- (Do this for BOTH SP and MP)
@@ -989,7 +1060,7 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
     const turnInsertSql = `INSERT INTO turns(
         turn_id, session_id, turn_index, scenario_text, image_url, image_prompt, suggested_actions, action_taken, time_of_day, is_same_location, characters, 
         created_at 
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`; // 11 placeholders
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`; // 11 placeholders
 
     const turnParams = [
       // Should be 11 params
@@ -1046,12 +1117,15 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
       timeOfDay: initialTurnData.timeOfDay,
       isSameLocation: initialTurnData.isSameLocation,
       characters: initialTurnData.characters || [],
+      // --- NEW: Goal info NOT sent in first turn response ---
+      // We only need it stored in the session on the backend
     };
 
     // Conditionally add inviteCode to response for multiplayer games
+    // Send back the session ID and the first turn data (excluding goal info)
     const responsePayload = {
       sessionId: sessionId,
-      currentTurn: firstTurn,
+      currentTurn: firstTurn, // Send only the necessary turn data
       ...(isGameMultiplayer && { inviteCode: inviteCode }), // Spread inviteCode only if multiplayer
     };
 
@@ -1223,9 +1297,11 @@ app.post("/api/game/action", authenticateToken, async (req, res) => {
   const sourceTurnIndex = parseInt(turnIndex, 10);
 
   try {
-    // --- 1. Fetch Session Details and ALL Players ---
+    // --- 1. Fetch Session Details, ALL Players, AND Goal State ---
     const session = await db.get(
-      "SELECT session_id, theme, is_multiplayer, max_players, current_player_index FROM sessions WHERE session_id = ?",
+      `SELECT session_id, theme, is_multiplayer, max_players, current_player_index,
+              game_goal, goal_prerequisites, met_prerequisites, is_goal_met
+       FROM sessions WHERE session_id = ?`,
       [sessionId]
     );
     if (!session) {
@@ -1362,7 +1438,7 @@ app.post("/api/game/action", authenticateToken, async (req, res) => {
           );
         }
 
-        // Prepare LLM Prompt with Multiplayer Context
+        // Prepare LLM Prompt with Multiplayer AND Goal Context
         const playerListString = players
           .map(
             (p) =>
@@ -1370,33 +1446,71 @@ app.post("/api/game/action", authenticateToken, async (req, res) => {
                 p.player_index
               })${p.user_id === requestUserId ? " [Acting Player]" : ""}`
           )
-          .join("\n");
-        let turnSystemPrompt = GM_BASE_PROMPT.replace(
-          /{{characterName}}/g,
-          requestingPlayer.character_name
-        )
-          .replace(/{{characterGender}}/g, requestingPlayer.character_gender)
-          .replace(
-            /{{characterImageUrl}}/g,
-            requestingPlayer.character_image_url || "No image provided"
-          );
-        const turnUserInstruction = `
---- Player Characters ---
-${playerListString}
+          .join("\n"); // Corrected: newline character within the join argument
 
+        // --- Inject Goal Context into Base Prompt ---
+        let turnSystemPrompt = GM_BASE_PROMPT.replace(
+          /{{playerList}}/g,
+          playerListString
+        );
+        if (
+          session.game_goal &&
+          session.goal_prerequisites &&
+          session.met_prerequisites
+        ) {
+          turnSystemPrompt = turnSystemPrompt
+            .replace(/{{gameGoal}}/g, session.game_goal)
+            .replace(
+              /{{goalPrerequisites}}/g,
+              JSON.stringify(JSON.parse(session.goal_prerequisites))
+            ) // Pass as JSON array string
+            .replace(
+              /{{metPrerequisites}}/g,
+              JSON.stringify(JSON.parse(session.met_prerequisites))
+            ); // Pass as JSON array string
+        } else {
+          // Should not happen after turn 0, but handle defensively
+          console.warn(
+            `Session ${sessionId}: Missing goal context for turn ${
+              sourceTurnIndex + 1
+            }`
+          );
+          turnSystemPrompt = turnSystemPrompt
+            .replace(
+              "Goal & Prerequisites Context (Provided for turns AFTER the first):",
+              "// Goal Context Missing //"
+            )
+            .replace("- Game Goal: {{gameGoal}}", "")
+            .replace("- All Prerequisites: {{goalPrerequisites}}", "")
+            .replace("- Prerequisites Met So Far: {{metPrerequisites}}", "");
+        }
+        // --- End Goal Context Injection ---
+
+        const turnUserInstruction = `
 --- Game History ---
 ${historyContext.trim()}
 
 --- Player Action (from ${requestingPlayer.character_name}) ---
 ${action}
 
-Determine the outcome and generate the next part of the story based on the entire history and the player's action. Ensure the narrative reflects the current scene and considers all players present. The response MUST be valid JSON.
+Determine the outcome, update the narrative, image, suggestions, etc. Based on the action and the Goal Context provided in the system prompt, update the list of met prerequisites ('updated_met_prerequisites') and determine if the main game goal was met this turn ('is_goal_met_this_turn'). Ensure the response is valid JSON matching the Subsequent Turn structure.
 `;
-        const combinedTurnPrompt = `${turnSystemPrompt}\n\n${turnUserInstruction}`;
+        // Note: No longer need to pass character info in the user instruction if it's in the system prompt player list
+        const combinedTurnPrompt = `${turnSystemPrompt}
+
+${turnUserInstruction}`;
+
         console.log(
           `--- Sending Turn ${sourceTurnIndex + 1} Prompt to LLM ... ---`
         );
-        const nextTurnData = await callLLM(combinedTurnPrompt);
+        // Pass false for isInitialTurn
+        const nextTurnData = await callLLM(combinedTurnPrompt, 3, false);
+
+        // --- Extract Goal Update Info ---
+        const updatedMetPrerequisites =
+          nextTurnData.updated_met_prerequisites || []; // Default to empty array
+        const isGoalMetThisTurn = nextTurnData.is_goal_met_this_turn || false; // Default to false
+        // ------------------------------
 
         // Generate Image
         let newImageUrl = await generateImageWithAppropriateProvider(
@@ -1417,7 +1531,7 @@ Determine the outcome and generate the next part of the story based on the entir
                 suggested_actions, action_taken, time_of_day, is_same_location, characters, 
                 acting_player_user_id, acting_player_index, -- NEWLY POPULATED
                 created_at
-              ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`;
+              ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`;
         await db.run(turnInsertSql, [
           newTurnId,
           sessionId,
@@ -1442,11 +1556,29 @@ Determine the outcome and generate the next part of the story based on the entir
           nextPlayerIndex = (currentPlayerIndex + 1) % numPlayers;
         }
 
-        // Update session last_updated_at and current_player_index
+        // --- Update session: last_updated_at, current_player_index, AND Goal State ---
+        const finalGoalMetStatus =
+          isGoalMetThisTurn || session.is_goal_met === 1; // Keep goal met if it was already met
         await db.run(
-          'UPDATE sessions SET last_updated_at = datetime("now"), current_player_index = ? WHERE session_id = ?',
-          [nextPlayerIndex, sessionId]
+          `UPDATE sessions SET 
+             last_updated_at = datetime("now"), 
+             current_player_index = ?,
+             met_prerequisites = ?, 
+             is_goal_met = ? 
+           WHERE session_id = ?`,
+          [
+            nextPlayerIndex,
+            JSON.stringify(updatedMetPrerequisites), // Store updated list as JSON string
+            finalGoalMetStatus ? 1 : 0, // Store boolean as 0 or 1
+            sessionId,
+          ]
         );
+        console.log(
+          ` -> Session ${sessionId} updated. Next Turn: ${nextPlayerIndex}. Goal Met: ${finalGoalMetStatus}. Met Prereqs: ${JSON.stringify(
+            updatedMetPrerequisites
+          )}`
+        );
+        // ---------------------------------------------------------------------------
 
         await db.run("COMMIT"); // Commit transaction
 
@@ -1736,6 +1868,16 @@ app.get(
           characterImageUrl: p.character_image_url,
         })),
         history: fullHistory,
+        // --- NEW: Add Goal State ---
+        gameGoal: sessionRow.game_goal,
+        goalPrerequisites: sessionRow.goal_prerequisites
+          ? JSON.parse(sessionRow.goal_prerequisites)
+          : [],
+        metPrerequisites: sessionRow.met_prerequisites
+          ? JSON.parse(sessionRow.met_prerequisites)
+          : [],
+        isGoalMet: !!sessionRow.is_goal_met, // Convert 0/1 to boolean
+        // --- End Goal State ---
       };
 
       res.status(200).json(responsePayload);
@@ -2080,7 +2222,9 @@ process.on("SIGINT", async () => {
 async function getFullSessionState(sessionId) {
   try {
     const session = await db.get(
-      "SELECT session_id, theme, is_multiplayer, current_player_index FROM sessions WHERE session_id = ?",
+      `SELECT session_id, theme, is_multiplayer, current_player_index, 
+              game_goal, goal_prerequisites, met_prerequisites, is_goal_met 
+       FROM sessions WHERE session_id = ?`,
       [sessionId]
     );
     if (!session) return null; // Session not found
@@ -2129,9 +2273,25 @@ async function getFullSessionState(sessionId) {
         characterImageUrl: p.character_image_url,
       })),
       history: history,
+      // --- NEW: Add Goal State ---
+      gameGoal: session.game_goal,
+      goalPrerequisites: session.goal_prerequisites
+        ? JSON.parse(session.goal_prerequisites)
+        : [],
+      metPrerequisites: session.met_prerequisites
+        ? JSON.parse(session.met_prerequisites)
+        : [],
+      isGoalMet: !!session.is_goal_met, // Convert 0/1 to boolean
+      // --- End Goal State ---
     };
   } catch (error) {
     console.error(`Error fetching full session state for ${sessionId}:`, error);
+    // Add specific handling for JSON parse errors if they occur here
+    if (error instanceof SyntaxError) {
+      console.error(
+        ` -> JSON Parsing error while fetching session state for ${sessionId}. Check goal/prereq data in DB.`
+      );
+    }
     return null; // Return null on error
   }
 }

@@ -3,6 +3,7 @@ import React from "react";
 import type { Turn, Player } from "../types";
 import HistorySidebar from "./HistorySidebar";
 import ActionInput from "./ActionInput";
+import { CheckCircleIcon } from "@heroicons/react/24/solid"; // Import for goal met
 
 interface GameInterfaceProps {
   currentTurn: Turn | null;
@@ -15,6 +16,7 @@ interface GameInterfaceProps {
   players: Player[];
   currentPlayerIndex: number | null;
   currentUserId?: string;
+  isGoalMet?: boolean; // NEW: Add prop for goal status
 }
 
 const GameInterface: React.FC<GameInterfaceProps> = ({
@@ -28,6 +30,7 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
   players,
   currentPlayerIndex,
   currentUserId,
+  isGoalMet, // Destructure new prop
 }) => {
   if (!currentTurn) {
     return <div>Loading game state...</div>; // Or some other placeholder
@@ -134,8 +137,21 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
             )} */}
           </div>
         </div>
-        {/* Action Input */}
-        {isLoading ? (
+        {/* Action Input or Goal Met Message */}
+        {isGoalMet ? (
+          <div className="text-center text-lg font-semibold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900 p-6 rounded-md mt-4 shadow">
+            <CheckCircleIcon className="h-8 w-8 mx-auto mb-2 text-green-500" />
+            Adventure Complete!
+            {/* Optionally display the goal text if available */}
+            {/* {currentTurn.gameGoal && <p className="text-sm font-normal mt-1">Goal: {currentTurn.gameGoal}</p>} */}
+            <button
+              onClick={() => (window.location.href = "/")} // Simple redirect to home
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors"
+            >
+              Return to Main Menu
+            </button>
+          </div>
+        ) : isLoading ? (
           <div className="text-center text-sm text-gray-500 dark:text-gray-400 mt-2 py-12">
             <div className="flex flex-col items-center justify-center gap-2">
               <div className="flex items-center justify-center">

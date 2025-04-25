@@ -83,6 +83,10 @@ export interface SessionState {
   currentPlayerIndex: number | null;
   players: Player[];
   history: Turn[];
+  gameGoal?: string | null; // The goal text (optional for type safety before load)
+  goalPrerequisites?: string[]; // All prerequisites for the goal
+  metPrerequisites?: string[]; // Prerequisites met so far
+  isGoalMet?: boolean; // Has the final goal been achieved?
 }
 
 // --- API Request Payloads ---
