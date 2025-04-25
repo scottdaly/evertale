@@ -415,63 +415,73 @@ const PlayPage = ({
   // --- Action Submission Handler --- (Keep local loading for immediate feedback)
   const handleActionSubmit = useCallback(
     async (action: string) => {
-      // Modify the condition to only check connectionStatus for multiplayer
       const isConnected = connectionStatus === "connected";
+      const isCurrentlyMyTurn =
+        sessionState?.players.find((p) => p.userId === user?.id)
+          ?.playerIndex === sessionState?.currentPlayerIndex;
 
       if (
         combinedLoading ||
         !sessionId ||
         !isAuthenticated ||
         !sessionState ||
-        (isMultiplayerGame && !isConnected)
+        (isMultiplayerGame && !isConnected) ||
+        (isMultiplayerGame && !isCurrentlyMyTurn)
       ) {
         if (isMultiplayerGame && !isConnected) {
-          // Show error only if MP and not connected
           setError("Not connected to server. Cannot submit action.");
         }
-        // Optionally log other reasons if needed for debugging
-        // else { console.log("Action blocked by other loading/state issue."); }
+        if (isMultiplayerGame && !isCurrentlyMyTurn) {
+          setError("It's not your turn to submit an action."); // Add specific error
+        }
         return;
-      }
-
-      // Use isMultiplayerGame defined in outer scope
-      if (isMultiplayerGame) {
-        // ... turn check logic ...
       }
 
       setIsGameLoading(true);
       setError(null);
       const actionFromTurnIndex = currentTurnIndex;
+
       try {
         console.log(
-          "PlayPage: Action submitted.",
-          isMultiplayerGame
-            ? "Waiting for WebSocket update."
-            : "Updating local state."
+          `PlayPage: Submitting action '${action}' for turn ${actionFromTurnIndex} in session ${sessionId}`
         );
-        // Use isMultiplayerGame defined in outer scope
+        // --- MODIFIED: Always call submitAction ---
+        // The backend's response will trigger a broadcast for multiplayer games.
+        // For single-player, we use the direct response.
+        const response = await submitAction(
+          sessionId!,
+          action,
+          actionFromTurnIndex
+        );
+
+        console.log("PlayPage: submitAction API call successful.");
+
+        // For single-player, update state directly from response.
+        // For multiplayer, the WebSocket 'SESSION_UPDATE' listener will handle the state update.
         if (!isMultiplayerGame) {
-          const response = await submitAction(
-            sessionId!,
-            action,
-            actionFromTurnIndex
-          );
+          console.log("PlayPage: Single-player game, updating state directly.");
           setSessionState(response);
           setCurrentTurnIndex(response.history.length - 1);
-          setIsGameLoading(false); // Stop loading for SP
+          setIsGameLoading(false); // Stop loading after SP update
+        } else {
+          // In multiplayer, we technically *could* update optimistically,
+          // but it's safer to wait for the broadcast to ensure consistency.
+          // The loading state will be turned off by the SESSION_UPDATE handler.
+          console.log(
+            "PlayPage: Multiplayer game, waiting for SESSION_UPDATE broadcast."
+          );
         }
-        // For multiplayer, the SESSION_UPDATE listener handles state update and loading stop
       } catch (err: any) {
-        setError(
-          `Failed to process action: ${
-            err.response?.data?.error || err.message || "Unknown error"
-          }`
-        );
-        setIsGameLoading(false); // Stop loading on error
+        // Ensure loading stops on error
+        setIsGameLoading(false);
+        const errorMsg = `Failed to process action: ${
+          err.response?.data?.error || err.message || "Unknown error"
+        }`;
+        console.error("PlayPage: Error submitting action:", errorMsg);
+        setError(errorMsg);
         if (err.response?.status === 401 || err.response?.status === 403)
           logout();
       }
-      // Loading state is now handled within the try block for SP or by WS for MP
     },
     [
       sessionId,
@@ -481,10 +491,10 @@ const PlayPage = ({
       setError,
       logout,
       isAuthenticated,
-      sessionState, // sessionState includes isMultiplayer indirectly
+      sessionState,
       user?.id,
       connectionStatus,
-      isMultiplayerGame, // Use the flag from outer scope here
+      isMultiplayerGame,
     ]
   );
 
