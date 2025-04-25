@@ -61,7 +61,7 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
             Players ({players.length})
           </h4>
           <ul className="space-y-1.5 px-1 max-h-[20vh] overflow-y-auto">
-            {players.map((player, index) => (
+            {players.map((player) => (
               <li
                 key={player.userId}
                 className={`flex items-center p-1.5 rounded-md transition-colors ${

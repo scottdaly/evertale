@@ -549,7 +549,7 @@ const CharacterCreation: React.FC<CharacterCreationProps> = ({
       imageSource === source
         ? "text-blue-600 dark:text-blue-400 font-semibold"
         : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200";
-    const ring = imageSource === source ? "" : ""; // Removed ring for simplicity, focus handles outline
+
     const disabled = isLoading || isImageLoading ? "opacity-50" : "";
     return `${base} ${text} ${disabled}`;
   };
@@ -861,7 +861,7 @@ const CharacterCreation: React.FC<CharacterCreationProps> = ({
                   alt="Character Preview"
                   className="max-h-40 max-w-full rounded object-contain"
                   onError={(e) => {
-                    console.error("Image preview error");
+                    console.error("Image preview error", e);
                     setPreviewUrl(null);
                     setImageError(
                       "Failed to load image preview. Check URL or file."

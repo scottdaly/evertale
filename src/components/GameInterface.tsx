@@ -1,6 +1,6 @@
 // src/components/GameInterface.tsx
 import React from "react";
-import type { Turn, Character, Player } from "../types";
+import type { Turn, Player } from "../types";
 import HistorySidebar from "./HistorySidebar";
 import ActionInput from "./ActionInput";
 
@@ -33,7 +33,7 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
     return <div>Loading game state...</div>; // Or some other placeholder
   }
 
-  const showImageLoading = isLoading && currentTurnIndex === history.length - 1;
+  // const showImageLoading = isLoading && currentTurnIndex === history.length - 1;
 
   const isMyTurn =
     isMultiplayer && currentUserId

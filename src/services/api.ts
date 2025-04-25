@@ -3,14 +3,9 @@ import axios from "axios";
 // Remove useAuth import if not needed elsewhere after this change
 // import { useAuth } from "../context/AuthContext";
 import type {
-  GameStartResponse,
-  GameActionResponse,
   Turn,
-  SessionSummary,
-  SessionHistoryResponse,
   SessionListItem,
   SessionState,
-  GenerateImagePayload,
   JoinGamePayload,
   JoinGameResponse,
   InviteInfoResponse,
@@ -109,12 +104,6 @@ interface SubmitActionPayload {
   sessionId: string;
   action: string;
   turnIndex: number;
-}
-
-// Response from submitting an action
-interface SubmitActionResponse {
-  currentTurn: Turn;
-  updatedHistory: Turn[];
 }
 
 // Function to submit an action

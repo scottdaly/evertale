@@ -4,7 +4,7 @@ import { io, Socket } from "socket.io-client"; // Import Socket type
 import { useAuth } from "../context/AuthContext";
 import GameInterface from "../components/GameInterface";
 import { getSessionHistory, submitAction } from "../services/api";
-import type { SessionState, Player, Turn } from "../types";
+import type { SessionState } from "../types";
 import toast from "react-hot-toast"; // Import toast
 import { ClipboardDocumentIcon, CheckIcon } from "@heroicons/react/24/outline"; // Import icons
 import {
@@ -505,9 +505,9 @@ const PlayPage = ({
 
   // --- Determine Current Turn Data ---
   const currentTurn = sessionState?.history[currentTurnIndex] || null;
-  const characterImageUrl = sessionState?.players?.find(
-    (p) => p.userId === user?.id
-  )?.characterImageUrl; // Get current user's image if needed
+  // const characterImageUrl = sessionState?.players?.find(
+  //   (p) => p.userId === user?.id
+  // )?.characterImageUrl; // Get current user's image if needed
 
   // --- Connection Status Indicator Component ---
   const ConnectionIndicator = () => {

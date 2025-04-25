@@ -253,9 +253,7 @@ interface RouteComponentProps {
 const CreatePage = ({
   setError,
   setIsGameLoading,
-  setIsHistoryLoading: _setIsHistoryLoading, // Acknowledge prop for interface, but unused
-  setIsDeletingSession,
-  setIsJoiningGame,
+  setIsHistoryLoading: _setIsHistoryLoading,
   combinedLoading,
   logout,
 }: RouteComponentProps & {
