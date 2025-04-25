@@ -215,15 +215,18 @@ const PlayPage = ({
 
               setConnectionStatus("connecting"); // Set initial status
 
-              // Use import.meta.env for Vite projects
+              // Determine backend URL: Use env var if set, otherwise use current origin (relative path for socket.io)
+              // This ensures connections go to the same domain the site is hosted on (e.g., infiniteadventure.co)
               const backendUrl =
-                import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
+                import.meta.env.VITE_BACKEND_URL || window.location.origin;
               console.log(`PlayPage: Connecting WebSocket to ${backendUrl}`); // Log the URL
 
               const newSocket = io(backendUrl, {
                 reconnectionAttempts: 5, // Example: Limit attempts
                 reconnectionDelay: 1000, // Start delay 1s
                 reconnectionDelayMax: 5000, // Max delay 5s
+                // Ensure path matches server configuration if needed (usually defaults to /socket.io/)
+                // path: "/socket.io/" // Typically not needed unless server path is customized
               });
               socketRef.current = newSocket;
 

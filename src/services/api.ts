@@ -11,16 +11,20 @@ import type {
   InviteInfoResponse,
 } from "../types";
 
+// Use relative path if VITE_API_BASE_URL is not explicitly set
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 if (!API_BASE_URL) {
-  console.error("FATAL ERROR: VITE_API_BASE_URL is not defined in .env");
+  // This condition is less likely to be hit now, but kept for safety
+  console.error(
+    "FATAL ERROR: API_BASE_URL could not be determined. Check VITE_API_BASE_URL env var or default."
+  );
   // You might want to throw an error or handle this differently
 }
 
 // --- Create Singleton Axios Instance --- \
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL, // This will now be /api if VITE_API_BASE_URL is not set
   headers: {
     "Content-Type": "application/json",
   },
