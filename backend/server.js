@@ -32,9 +32,9 @@ const port = process.env.PORT || 3001;
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173", // Allow frontend origin
+    origin: uniqueAllowedOrigins, // Use the array of allowed origins
     methods: ["GET", "POST"],
-    credentials: true, // <-- ADD THIS LINE
+    credentials: true,
   },
 });
 // ---------------------------------------------------
@@ -1909,6 +1909,16 @@ app.get("/health", (req, res) => res.status(200).send("OK"));
 // Store active connections, mapping sessionId to a map of userId to socket
 // Allows finding specific users or all users in a session
 const sessionSockets = new Map(); // Removed TypeScript syntax
+
+// --- MODIFIED: More explicit CORS origins for Socket.IO ---
+const allowedOrigins = [
+  process.env.FRONTEND_URL, // Primary origin from env
+  "http://localhost:5173", // Explicitly allow default dev origin
+  "https://infiniteadventure.co", // Explicitly allow the origin seen in logs
+].filter(Boolean); // Filter out undefined/null if FRONTEND_URL is not set
+
+const uniqueAllowedOrigins = [...new Set(allowedOrigins)]; // Remove duplicates
+console.log("Socket.IO CORS Allowed Origins:", uniqueAllowedOrigins);
 
 io.on("connection", (socket) => {
   console.log(`WebSocket client connected: ${socket.id}`);
