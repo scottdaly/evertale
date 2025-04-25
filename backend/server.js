@@ -1529,27 +1529,59 @@ ${turnUserInstruction}`;
         // Insert New Turn
         const newTurnIndex = sourceTurnIndex + 1;
         const newTurnId = uuidv4();
-        const turnInsertSql = `INSERT INTO turns(
-                turn_id, session_id, turn_index, scenario_text, image_url, image_prompt, 
-                suggested_actions, action_taken, time_of_day, is_same_location, characters, 
-                acting_player_user_id, acting_player_index, -- NEWLY POPULATED
-                created_at
-              ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`;
-        await db.run(turnInsertSql, [
-          newTurnId,
-          sessionId,
-          newTurnIndex,
-          nextTurnData.narrative,
-          newImageUrl,
-          nextTurnData.image_prompt,
-          JSON.stringify(nextTurnData.suggested_actions || []),
-          action, // Record the action taken THIS turn
-          nextTurnData.timeOfDay,
-          nextTurnData.isSameLocation ? 1 : 0,
-          JSON.stringify(nextTurnData.characters || []),
-          requestUserId, // acting_player_user_id
-          requestingPlayer.player_index, // acting_player_index
-        ]);
+        // Explicitly define columns and placeholders
+        const turnColumns = [
+          "turn_id",
+          "session_id",
+          "turn_index",
+          "scenario_text",
+          "image_url",
+          "image_prompt",
+          "suggested_actions",
+          "action_taken",
+          "time_of_day",
+          "is_same_location",
+          "characters",
+          "acting_player_user_id",
+          "acting_player_index",
+          "created_at", // 14 columns
+        ];
+        const turnPlaceholders = Array(13).fill("?").join(", "); // 13 placeholders
+        const turnInsertSql = `INSERT INTO turns (${turnColumns.join(
+          ", "
+        )}) VALUES (${turnPlaceholders}, datetime('now'))`;
+
+        // Prepare the 13 parameters corresponding to the placeholders
+        const turnParams = [
+          newTurnId, // 1
+          sessionId, // 2
+          newTurnIndex, // 3
+          nextTurnData.narrative, // 4
+          newImageUrl, // 5
+          nextTurnData.image_prompt, // 6
+          JSON.stringify(nextTurnData.suggested_actions || []), // 7
+          action, // 8 (action taken this turn)
+          nextTurnData.timeOfDay, // 9
+          nextTurnData.isSameLocation ? 1 : 0, // 10
+          JSON.stringify(nextTurnData.characters || []), // 11
+          requestUserId, // 12 (acting_player_user_id)
+          requestingPlayer.player_index, // 13 (acting_player_index)
+        ];
+
+        // Debug log before executing
+        console.log(`DEBUG: Executing SQL: ${turnInsertSql}`);
+        console.log(
+          `DEBUG: With Params (${turnParams.length}):`,
+          JSON.stringify(
+            turnParams.map((p) =>
+              typeof p === "string" && p.length > 50
+                ? p.substring(0, 50) + "..."
+                : p
+            )
+          )
+        );
+
+        await db.run(turnInsertSql, turnParams);
 
         // Calculate next player index
         let nextPlayerIndex = currentPlayerIndex;
