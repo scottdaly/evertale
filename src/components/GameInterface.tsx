@@ -17,6 +17,10 @@ interface GameInterfaceProps {
   currentPlayerIndex: number | null;
   currentUserId?: string;
   isGoalMet?: boolean; // NEW: Add prop for goal status
+  // --- NEW: Debug Props ---
+  gameGoal?: string | null;
+  goalPrerequisites?: string[];
+  metPrerequisites?: string[];
 }
 
 const GameInterface: React.FC<GameInterfaceProps> = ({
@@ -31,6 +35,10 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
   currentPlayerIndex,
   currentUserId,
   isGoalMet, // Destructure new prop
+  // --- NEW: Destructure Debug Props ---
+  gameGoal,
+  goalPrerequisites,
+  metPrerequisites,
 }) => {
   if (!currentTurn) {
     return <div>Loading game state...</div>; // Or some other placeholder
@@ -137,6 +145,34 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
             )} */}
           </div>
         </div>
+        {/* --- DEBUG SECTION --- */}
+        {(gameGoal || goalPrerequisites || metPrerequisites) && (
+          <div className="debug-info mt-4 p-3 border border-dashed border-yellow-500 dark:border-yellow-700 bg-yellow-50 dark:bg-gray-800 rounded-md text-xs text-yellow-800 dark:text-yellow-200">
+            <h4 className="font-bold mb-1">DEBUG INFO:</h4>
+            {gameGoal && (
+              <p>
+                <strong>Goal:</strong> {gameGoal}
+              </p>
+            )}
+            {goalPrerequisites && (
+              <div>
+                <strong>Prerequisites:</strong>
+                <pre className="text-xs whitespace-pre-wrap">
+                  {JSON.stringify(goalPrerequisites, null, 2)}
+                </pre>
+              </div>
+            )}
+            {metPrerequisites && (
+              <div>
+                <strong>Met Prerequisites:</strong>
+                <pre className="text-xs whitespace-pre-wrap">
+                  {JSON.stringify(metPrerequisites, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+        {/* --- END DEBUG SECTION --- */}
         {/* Action Input or Goal Met Message */}
         {isGoalMet ? (
           <div className="text-center text-lg font-semibold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900 p-6 rounded-md mt-4 shadow">

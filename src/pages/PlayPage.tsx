@@ -615,6 +615,10 @@ const PlayPage = ({
           currentUserId={user?.id} // Pass current user's ID
           // --- NEW Prop for Goal State ---
           isGoalMet={!!sessionState.isGoalMet} // Pass goal met status (ensure boolean)
+          // --- NEW Debug Props ---
+          gameGoal={sessionState.gameGoal}
+          goalPrerequisites={sessionState.goalPrerequisites}
+          metPrerequisites={sessionState.metPrerequisites}
         />
       )}
     </div>
