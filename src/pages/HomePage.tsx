@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { getGameHistoryList, deleteSession } from "../services/api";
 import type { SessionListItem } from "../types";
 import { formatDistanceToNow } from "date-fns";
-
+import { TrashIcon } from "@heroicons/react/24/outline";
 // Theme definitions (consider moving to a shared constants file)
 const themes = [
   {
@@ -272,7 +272,7 @@ const HomePage: React.FC<HomePageProps> = ({
                     className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50"
                     title="Delete Session"
                   >
-                    🗑️
+                    <TrashIcon className="w-4 h-4" />
                   </button>
                 </div>
               </li>
