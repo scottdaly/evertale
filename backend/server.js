@@ -13,7 +13,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 
-// --- NEW: WebSocket Imports ---
+// --- WebSocket Imports ---
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 // -----------------------------
@@ -28,7 +28,7 @@ const __dirname = dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3001;
 
-// --- NEW: Create HTTP Server ---
+// --- Create HTTP Server ---
 const server = http.createServer(app);
 
 // --- MODIFIED: Moved CORS origins definition here ---
@@ -90,15 +90,16 @@ async function initializeDatabase() {
         session_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL, -- Consider removing if solely relying on session_players for owner info
         theme TEXT NOT NULL,
-        character_name TEXT, -- Kept for potential single-player use or migration ease
-        character_gender TEXT, -- Kept for potential single-player use or migration ease
-        character_image_url TEXT, -- Kept for potential single-player use or migration ease
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_updated_at DATETIME,
-        is_multiplayer INTEGER DEFAULT 0, -- NEW: Flag for multiplayer games
-        max_players INTEGER,               -- NEW: Max players for multiplayer
-        current_player_index INTEGER,      -- NEW: Index of the current player (links to session_players.player_index)
-        invite_code TEXT UNIQUE,           -- NEW: Unique code for joining multiplayer games
+        is_multiplayer INTEGER DEFAULT 0, -- Flag for multiplayer games
+        max_players INTEGER,               -- Max players for multiplayer
+        current_player_index INTEGER,      -- Index of the current player (links to session_players.player_index)
+        invite_code TEXT UNIQUE,           -- Unique code for joining multiplayer games
+        game_goal TEXT,                    -- Game goal 
+        goal_prerequisites TEXT,           -- JSON array string of prerequisites
+        met_prerequisites TEXT DEFAULT '[]', -- JSON array string of met prerequisites
+        is_goal_met INTEGER DEFAULT 0,      -- Boolean (0 or 1) if goal is met
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       );
     `);
@@ -119,8 +120,8 @@ async function initializeDatabase() {
         time_of_day TEXT,
         is_same_location INTEGER, -- Boolean (0 or 1)
         characters TEXT,         -- Stored as JSON string [{name, description, appearance, opinionOfPlayer}]
-        acting_player_user_id TEXT, -- NEW: User ID of the player who took the action leading to this turn
-        acting_player_index INTEGER,   -- NEW: Player index of the user who took the action
+        acting_player_user_id TEXT, -- User ID of the player who took the action leading to this turn
+        acting_player_index INTEGER,   -- Player index of the user who took the action
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
         FOREIGN KEY (acting_player_user_id) REFERENCES users(user_id), -- Optional: Link action taker
@@ -129,7 +130,7 @@ async function initializeDatabase() {
     `);
     console.log("Turns table checked/created.");
 
-    // --- NEW: Create session_players table (if not exists) ---
+    // --- Create session_players table (if not exists) ---
     await dbInstance.exec(`
       CREATE TABLE IF NOT EXISTS session_players (
         id INTEGER PRIMARY KEY AUTOINCREMENT, -- Simple row ID
@@ -182,15 +183,10 @@ async function initializeDatabase() {
     await addColumn("sessions", "current_player_index", "INTEGER");
     await addColumn("sessions", "invite_code", "TEXT UNIQUE");
     // Old character columns might already exist from previous attempts or initial creation
-    await addColumn("sessions", "character_name", "TEXT");
-    await addColumn("sessions", "character_gender", "TEXT");
-    await addColumn("sessions", "character_image_url", "TEXT");
-    // --- NEW: Goal columns ---
     await addColumn("sessions", "game_goal", "TEXT");
-    await addColumn("sessions", "goal_prerequisites", "TEXT"); // JSON array string
-    await addColumn("sessions", "met_prerequisites", "TEXT DEFAULT '[]'"); // JSON array string, default empty
-    await addColumn("sessions", "is_goal_met", "INTEGER DEFAULT 0"); // Boolean (0 or 1)
-    // --- End Goal columns ---
+    await addColumn("sessions", "goal_prerequisites", "TEXT");
+    await addColumn("sessions", "met_prerequisites", "TEXT DEFAULT '[]'");
+    await addColumn("sessions", "is_goal_met", "INTEGER DEFAULT 0");
 
     // Add to 'turns'
     await addColumn("turns", "time_of_day", "TEXT");
@@ -223,6 +219,10 @@ const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 // --- LLM Configuration ---
 const ACTIVE_LLM_PROVIDER = process.env.ACTIVE_LLM_PROVIDER || "openai"; // Default to openai
 const ACTIVE_IMAGE_PROVIDER = process.env.ACTIVE_IMAGE_PROVIDER || "google"; // Default to openai
+
+const INITIAL_LLM_PROVIDER = process.env.INITIAL_LLM_PROVIDER || "openai";
+const INITIAL_GOOGLE_MODEL =
+  process.env.INITIAL_GOOGLE_MODEL || "gemini-2.5-pro-preview-03-25";
 
 // OpenAI Config
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -437,15 +437,15 @@ function generateCharacterPrompt(theme, name, gender, description) {
 // --- The Core LLM Prompt  ---
 // Keep this focused on the task and JSON structure requirements
 const GM_BASE_PROMPT = `
-You are: An expert AI Game Master (GM) facilitating a dynamic, text-based role-playing adventure game. Your purpose is to create and manage an engaging, interactive narrative experience for potentially multiple users (the players) in the same session, guiding them towards a hidden goal.
+You are: An expert AI Game Master (GM) facilitating a dynamic, text-based role-playing adventure game. Your purpose is to create and manage an engaging, interactive narrative experience for potentially multiple users (the players) in the same session.
 
-Core Objective: To act as the eyes, ears, and rules engine of the game world. You will interpret the acting player's action, determine outcomes, advance the story, and track progress towards a pre-defined game goal. Crucially, your entire response MUST be a single, valid JSON object.
+Core Objective: To act as the eyes, ears, and rules engine of the game world. You will interpret the acting player's action, determine outcomes, advance the story, and track progress towards a game goal. Most importantly, you will create a world and characters that are engaging and interesting, like a good story in a book or a great anime. The world and characters should be original and unique, while still feeling true to the theme that was chosen by the players. Crucially, your entire response MUST be a single, valid JSON object.
 
 Session Players & Acting Player:
 {{playerList}}
 (The player marked '[Acting Player]' is the one performing the action for the current turn.)
 
-Goal & Prerequisites Context (Provided for turns AFTER the first):
+Goal & Prerequisites Context:
 - Game Goal: {{gameGoal}}
 - All Prerequisites: {{goalPrerequisites}}
 - Prerequisites Met So Far: {{metPrerequisites}}
@@ -460,18 +460,18 @@ Required JSON Output Structure:
   "suggested_actions": ["String: Action 1", "String: Action 2", "String: Action 3 (unexpected)", "String: Action 4 (absurd)"],
   "isSameLocation": true, // Always true for the first turn
   "characters": [], // Usually empty for the first turn unless specified by theme
-  "game_goal": "String: A clear, achievable objective for the players relevant to the theme (e.g., 'Find the lost amulet', 'Escape the haunted mansion', 'Deliver the secret message'). This goal is HIDDEN from the players initially.",
+  "game_goal": "String: A clear, achievable objective for the players relevant to the theme (e.g., 'Deduce the identity of the murderer', 'Escape the haunted mansion', 'Deliver the secret message', 'Find love while living in NYC', 'Defeat the Shadow King'). Depending on the theme, the goal may be hidden from the players initially, or it may be an obvious part of the initial scene description. If it is hidden, it may end up being revealed later in the narrative. Make the goal broad enough to allow for multiple paths to achieve it, so the player's choices matter and create interesting gameplay.",
   "goal_prerequisites": [
     "String: A necessary step/condition to achieve the goal (e.g., 'Learn the amulet's location').",
     "String: Another prerequisite (e.g., 'Find the key to the crypt').",
-    "String: Potentially a third prerequisite."
+    "String: Potentially a third prerequisite (e.g., 'Discover the king's weakness')."
     // Keep prerequisites concise and logical steps towards the goal. 2-4 prerequisites are ideal.
   ]
 }
 
 --- IF Subsequent Turn (Turn 1+): ---
 {
-  "narrative": "String: Description of the scene, events, and outcomes of the acting player's action. May subtly hint if a prerequisite was met or if the final goal is achieved.",
+  "narrative": "String: Description of the scene, events, and outcomes of the acting player's action. May subtly hint if a prerequisite was met or if the final goal is achieved based on the provided Goal Context, but do not explicitly mention the fact there is a goal or prerequisites.",
   "timeOfDay": "String: Updated time of day.",
   "image_prompt": "String: Updated image prompt reflecting the new scene/events.",
   "suggested_actions": ["String: Next player's action 1", "String: Next player's action 2", "String: Next player's action 3 (unexpected)", "String: Next player's action 4 (absurd)"],
@@ -479,43 +479,37 @@ Required JSON Output Structure:
   "characters": [ /* Updated list of NPCs present */ { "name": "...", "description": "...", "appearance": "...", "opinionOfPlayer": "..." } ],
   "updated_met_prerequisites": [
     "String: List containing ALL prerequisites met SO FAR, including any newly met by the current action."
-    // Compare the action against the UNMET prerequisites from the input {{metPrerequisites}} and {{goalPrerequisites}}.
+    // Compare the action against the UNMET prerequisites from the input Goal Context ({{metPrerequisites}} and {{goalPrerequisites}}).
     // If the action fulfills an unmet prerequisite, add it to this list. Include all previously met ones.
   ],
-  "is_goal_met_this_turn": "Boolean: Did the player's action successfully achieve the 'Game Goal' AND were ALL 'goal_prerequisites' ALREADY met (present in the input '{{metPrerequisites}}' list) BEFORE this action was taken?"
+  "is_goal_met_this_turn": "Boolean: Did the player's action successfully achieve the 'Game Goal' (from input Goal Context) AND were ALL 'goal_prerequisites' (from input Goal Context) ALREADY met (present in the input '{{metPrerequisites}}' list) BEFORE this action was taken?"
 }
 
 
 Game Flow & Instructions:
-- Initialization (First Turn / "Start a new adventure..."): Given Genre and Player details ({{playerList}}), create a starting scenario, image prompt, actions, AND a hidden 'game_goal' and 'goal_prerequisites' list. Output the Turn 0 JSON structure.
-- Subsequent Turns: Given history, player list ({{playerList}}), the current 'game_goal', 'goal_prerequisites', 'met_prerequisites' list, and the Player Action from the [Acting Player]:
-    1. Interpret action and determine outcome.
-    2. Update the narrative, image prompt, suggested actions (for the *next* player), time, location status, and NPCs.
-    3. Evaluate if the action fulfills any *unmet* prerequisites.
-    4. Construct the 'updated_met_prerequisites' list (including all previously met + newly met ones).
-    5. Evaluate if the action fulfills the 'game_goal' *and* if all 'goal_prerequisites' were already met *before* this turn. Set 'is_goal_met_this_turn' accordingly.
-    6. Output the Subsequent Turn JSON structure.
+- Initialization (First Turn / "Start a new adventure..."): Given Genre and Player details ({{playerList}}), create a starting scenario, image prompt, actions, AND a 'game_goal' and 'goal_prerequisites' list. Output the Turn 0 JSON structure.
+- Initial Location: The initial scene should take place in a location that makes sense for the theme and goal. For example, if the theme is "Fantasy" and the goal is "Find the emporer's lost treasure", the initial location may be far from the goal, since Fantasy settings are often expansive, but if the theme is "Mystery" and the goal is "Solve the murder of Mr. X", the initial location may be a dinner party or the crime scene. The initial scene should be a thoughtful starting point for the game.
 - JSON Format Absolutely Mandatory: Your *entire* output must be *only* the JSON object. No introductory text, no explanations, just the JSON. Ensure it's valid.
-- Prerequisite Logic: An action can only fulfill a prerequisite if it logically follows the narrative and the prerequisite itself. Don't fulfill prerequisites randomly.
-- Goal Achievement Logic: The 'game_goal' can ONLY be achieved ('is_goal_met_this_turn: true') if: a) the player's action directly accomplishes the goal text, AND b) *all* items in the 'goal_prerequisites' list were already present in the 'met_prerequisites' list *provided as input* for this turn.
+- Goal Achievement Logic: The 'game_goal' can ONLY be achieved ('is_goal_met_this_turn: true') if: a) the player's action directly accomplishes the goal text (from Goal Context), AND b) *all* items in the 'goal_prerequisites' list (from Goal Context) were already present in the 'met_prerequisites' list *provided as input* for this turn.
 - Hidden Information: Do NOT explicitly state the goal or the full prerequisite list to the players in the narrative unless the narrative itself logically reveals it (e.g., finding a quest scroll). Progress should feel natural.
 - Genre Adherence: Maintain tone, logic, style.
-- Player Agency: Respond logically, suggestions are hints.
 - Characters (NPCs): Only include relevant, present NPCs. Do NOT include player characters in the 'characters' array.
 - Immersive Narrative: Address ACTING player as "You". Use other player names.
 - Consistent Image Prompts: Reflect narrative, mood, style. No player characters. Describe NPCs.
-- Suggested Actions: Relevant for the *next* player. Include 2 absurd/unexpected options.
-- World Consistency: Maintain continuity.
-- No Meta-Gaming. Clarity.
+- Suggested Actions: Relevant for the *next* player. Include 2 absurd/unexpected options. Avoid railroading the player.
+- World Consistency: Maintain continuity in the world and characters, but don't be afraid to change things up and make the world expansive and dynamic.
+- No Meta-Gaming.
 `.trim();
 
 // --- Provider-Specific API Call Functions ---
 
-async function callOpenAI(systemPrompt, userPrompt) {
+async function callOpenAI(systemPrompt, userPrompt, modelOverride = null) {
+  const modelToUse = modelOverride || OPENAI_MODEL;
+  console.log(` -> Calling OpenAI with model: ${modelToUse}`);
   const response = await axios.post(
     OPENAI_API_ENDPOINT,
     {
-      model: OPENAI_MODEL,
+      model: modelToUse, // Use determined model
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -535,34 +529,32 @@ async function callOpenAI(systemPrompt, userPrompt) {
   return response.data.choices[0]?.message?.content;
 }
 
-async function callGoogle(systemPrompt, userPrompt) {
-  const endpoint = `${GOOGLE_API_ENDPOINT_TEMPLATE}?key=${GOOGLE_API_KEY}`;
-  const response = await axios.post(
-    endpoint,
-    {
-      // Structure for Gemini API
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json", // Crucial for JSON output
-        temperature: 0.7,
-        // candidateCount: 1 // Default is 1
-      },
+async function callGoogle(systemPrompt, userPrompt, modelOverride = null) {
+  const modelToUse = modelOverride || GOOGLE_MODEL;
+  console.log(` -> Calling Google Gemini with model: ${modelToUse}`);
+
+  const response = await googleGenAI.models.generateContent({
+    model: modelToUse,
+    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    config: {
+      systemInstruction: systemPrompt,
     },
-    {
-      headers: { "Content-Type": "application/json" },
-      timeout: 45000, // Slightly longer timeout for Gemini potentially
-    }
-  );
-  // Return the raw JSON string for central parsing
-  return response.data.candidates[0]?.content?.parts[0]?.text;
+  });
+
+  console.log("Google response: ", response);
+
+  const responseText = response.candidates[0]?.content?.parts[0]?.text;
+  console.log("Google response data: ", responseText);
+  return responseText;
 }
 
-async function callAnthropic(systemPrompt, userPrompt) {
+async function callAnthropic(systemPrompt, userPrompt, modelOverride = null) {
+  const modelToUse = modelOverride || ANTHROPIC_MODEL;
+  console.log(` -> Calling Anthropic Claude with model: ${modelToUse}`);
   const response = await axios.post(
     ANTHROPIC_API_ENDPOINT,
     {
-      model: ANTHROPIC_MODEL,
+      model: modelToUse, // Use determined model
       system: systemPrompt, // Anthropic uses a dedicated 'system' field
       messages: [{ role: "user", content: userPrompt }],
       max_tokens: 4096, // Required by Anthropic
@@ -581,46 +573,82 @@ async function callAnthropic(systemPrompt, userPrompt) {
   return response.data.content[0]?.text;
 }
 
-// --- **UPDATED** Central LLM Dispatcher with Retries and Validation ---
-async function callLLM(promptContent, maxRetries = 3, isInitialTurn = false) {
-  // Add flag
+// Central LLM Dispatcher with Retries and Validation ---
+async function callLLM(
+  promptContent,
+  maxRetries = 3,
+  isInitialTurn = false,
+  providerOverride = null, // NEW: Optional provider override
+  modelOverride = null // NEW: Optional model override
+) {
   let lastError = null;
-  // Inject the base system prompt here, potentially modifying it slightly based on context if needed
   const systemPrompt = GM_BASE_PROMPT; // Use the shared system prompt
+
+  // Determine the provider and model to use for this specific call
+  const providerToUse =
+    providerOverride ||
+    (isInitialTurn ? INITIAL_LLM_PROVIDER : ACTIVE_LLM_PROVIDER);
+  let modelToUse = modelOverride;
+  if (!modelToUse) {
+    // Only determine default model if override not provided
+    switch (providerToUse) {
+      case "openai":
+        modelToUse = isInitialTurn ? INITIAL_OPENAI_MODEL : OPENAI_MODEL;
+        break;
+      case "google":
+        modelToUse = isInitialTurn ? INITIAL_GOOGLE_MODEL : GOOGLE_MODEL;
+        break;
+      case "anthropic":
+        modelToUse = isInitialTurn ? INITIAL_ANTHROPIC_MODEL : ANTHROPIC_MODEL;
+        break;
+      default:
+        // This case should ideally be caught by startup validation, but handle defensively
+        console.error(`callLLM: Invalid provider determined: ${providerToUse}`);
+        throw new Error(`Invalid LLM provider configured: ${providerToUse}`);
+    }
+  }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     console.log(
-      `--- Calling LLM Provider: ${ACTIVE_LLM_PROVIDER} (Attempt ${attempt}/${maxRetries}) ---`
+      `--- Calling LLM Provider: ${providerToUse} (Model: ${modelToUse}) (Attempt ${attempt}/${maxRetries}) ---`
     );
     try {
       let llmResponseContent; // Raw JSON string
 
-      // 1. Dispatch to the correct provider function
-      switch (ACTIVE_LLM_PROVIDER) {
+      // 1. Dispatch to the correct provider function, passing the determined model
+      switch (providerToUse) {
         case "openai":
-          llmResponseContent = await callOpenAI(systemPrompt, promptContent);
+          llmResponseContent = await callOpenAI(
+            systemPrompt,
+            promptContent,
+            modelToUse
+          );
           break;
         case "google":
-          llmResponseContent = await callGoogle(systemPrompt, promptContent);
+          llmResponseContent = await callGoogle(
+            systemPrompt,
+            promptContent,
+            modelToUse
+          );
           break;
         case "anthropic":
-          llmResponseContent = await callAnthropic(systemPrompt, promptContent);
+          llmResponseContent = await callAnthropic(
+            systemPrompt,
+            promptContent,
+            modelToUse
+          );
           break;
-        default: // Should not happen due to startup check, but good failsafe
+        default: // Should not happen due to validation, but good failsafe
           throw new Error(
-            `Invalid ACTIVE_LLM_PROVIDER configured: ${ACTIVE_LLM_PROVIDER}`
+            `Invalid LLM provider configured for call: ${providerToUse}`
           );
       }
 
       if (!llmResponseContent) {
-        throw new Error(
-          `LLM response content is empty from ${ACTIVE_LLM_PROVIDER}.`
-        );
+        throw new Error(`LLM response content is empty from ${providerToUse}.`);
       }
 
-      console.log(
-        `--- Received Raw LLM Response from ${ACTIVE_LLM_PROVIDER} ---`
-      );
+      console.log(`--- Received Raw LLM Response from ${providerToUse} ---`);
       // console.log(llmResponseContent);
       console.log("----------------------------------------");
 
@@ -675,48 +703,42 @@ async function callLLM(promptContent, maxRetries = 3, isInitialTurn = false) {
         );
       }
 
-      // --- NEW: Goal/Prerequisite Field Validation based on turn type ---
-      let validationError = null;
+      // --- Goal/Prerequisite Field Validation based on turn type ---
       if (isInitialTurn) {
+        // Initial Turn: Must have game_goal and goal_prerequisites
         if (
           typeof parsedJson.game_goal !== "string" ||
           parsedJson.game_goal.trim() === ""
         ) {
-          validationError =
-            "Missing or empty 'game_goal' (string) on initial turn.";
-        } else if (
+          throw new Error(
+            "LLM JSON response missing/invalid 'game_goal' (string) on initial turn."
+          );
+        }
+        if (
           !Array.isArray(parsedJson.goal_prerequisites) ||
           !parsedJson.goal_prerequisites.every((p) => typeof p === "string")
         ) {
-          validationError =
-            "Missing or invalid 'goal_prerequisites' (array of strings) on initial turn.";
+          throw new Error(
+            "LLM JSON response missing/invalid 'goal_prerequisites' (array of strings) on initial turn."
+          );
         }
       } else {
-        // Subsequent turn validation
+        // Subsequent Turn: Must have updated_met_prerequisites and is_goal_met_this_turn
         if (
           !Array.isArray(parsedJson.updated_met_prerequisites) ||
           !parsedJson.updated_met_prerequisites.every(
             (p) => typeof p === "string"
           )
         ) {
-          validationError =
-            "Missing or invalid 'updated_met_prerequisites' (array of strings) on subsequent turn.";
-        } else if (typeof parsedJson.is_goal_met_this_turn !== "boolean") {
-          validationError =
-            "Missing or invalid 'is_goal_met_this_turn' (boolean) on subsequent turn.";
+          throw new Error(
+            "LLM JSON response missing/invalid 'updated_met_prerequisites' (array of strings) on subsequent turn."
+          );
         }
-      }
-
-      if (validationError) {
-        console.error(
-          `LLM Response (Attempt ${attempt}/${maxRetries}) - Validation Error: ${validationError}`
-        );
-        console.error(
-          `Parsed Object with issue: ${JSON.stringify(parsedJson, null, 2)}`
-        );
-        throw new Error(
-          `LLM JSON response failed validation: ${validationError}`
-        );
+        if (typeof parsedJson.is_goal_met_this_turn !== "boolean") {
+          throw new Error(
+            "LLM JSON response missing/invalid 'is_goal_met_this_turn' (boolean) on subsequent turn."
+          );
+        }
       }
       // --- End of new validation ---
 
@@ -747,7 +769,7 @@ async function callLLM(promptContent, maxRetries = 3, isInitialTurn = false) {
   // If loop finishes, all retries failed
   console.error(`LLM call failed permanently after ${maxRetries} attempts.`);
   throw new Error(
-    `LLM (${ACTIVE_LLM_PROVIDER}) failed after ${maxRetries} attempts: ${
+    `LLM (${providerToUse}) failed after ${maxRetries} attempts: ${
       lastError?.message || "Unknown LLM Error"
     }`
   );
@@ -906,8 +928,8 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
     characterName,
     characterGender,
     characterImageUrl, // Already handles optional image
-    isMultiplayer, // NEW: Optional flag
-    maxPlayers, // NEW: Optional max players
+    isMultiplayer, // Optional flag
+    maxPlayers, // Optional max players
   } = req.body;
   const userId = req.user.id; // Get user ID from middleware
 
@@ -946,8 +968,12 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
           : "single-player"
       } game with theme: ${theme}, Name: ${characterName}, Gender: ${characterGender}`
     );
-
-    const initialUserInstruction = `Start a new adventure game in the ${theme} genre for character ${characterName} (${characterGender}). Generate the initial scenario, hidden goal, and hidden prerequisites.`;
+    let initialUserInstruction = "";
+    if (isGameMultiplayer) {
+      initialUserInstruction = `Start a new game in the ${theme} genre for character ${characterName} (${characterGender}). There will be additional player characters in this player's party, which will be provided to you shortly, do not mention them for now. Generate the initial scenario, goal, and prerequisites.`;
+    } else {
+      initialUserInstruction = `Start a new game in the ${theme} genre for character ${characterName} (${characterGender}). This will be the only player character in the game. Generate the initial scenario, goal, and prerequisites.`;
+    }
     // --- Inject Player List Placeholder into Base Prompt ---
     const playerListString = `- ${characterName} (${characterGender}, Index: 0) [Acting Player]`; // Only creator initially
     const initialSystemPrompt = GM_BASE_PROMPT.replace(
@@ -960,17 +986,33 @@ app.post("/api/game/start", authenticateToken, async (req, res) => {
 User Instruction: ${initialUserInstruction}`;
 
     console.log("--- Sending Initial Prompt to LLM ---");
-    // Pass true for isInitialTurn to callLLM for validation
-    const initialTurnData = await callLLM(promptForLLM, 3, true);
+    // --- Revert to using callLLM for cleaning and parsing ---
+    const initialTurnData = await callLLM(
+      promptForLLM, // Contains system prompt (implicitly via GM_BASE_PROMPT) and user instruction
+      3,
+      true, // isInitialTurn
+      INITIAL_LLM_PROVIDER, // Use configured initial provider
+      INITIAL_GOOGLE_MODEL // Use configured initial model (or specific override if needed)
+    );
+    // --- End Revert ---
 
-    // --- Extract Goal/Prerequisites from initialTurnData (specific to Turn 0) ---
-    const gameGoal = initialTurnData.game_goal;
-    const goalPrerequisites = initialTurnData.goal_prerequisites || []; // Ensure array
+    // --- Extract Goal/Prerequisites from the PARSED object (callLLM returns parsed object) ---
+    const gameGoal = initialTurnData.game_goal; // Now accessing the object property
+    const goalPrerequisites = initialTurnData.goal_prerequisites || []; // Accessing object property
 
-    if (!gameGoal || goalPrerequisites.length === 0) {
-      // This should be caught by callLLM validation, but double-check
+    if (
+      !gameGoal ||
+      typeof gameGoal !== "string" ||
+      gameGoal.trim() === "" ||
+      !Array.isArray(goalPrerequisites)
+    ) {
+      // Added type checks
+      console.error(
+        "Validation Error: game_goal or goal_prerequisites missing or invalid type in parsed data.",
+        { gameGoal, goalPrerequisites }
+      );
       throw new Error(
-        "LLM failed to provide game_goal or goal_prerequisites on initialization."
+        "LLM response parsed, but missing/invalid game_goal or goal_prerequisites."
       );
     }
     console.log(` -> Game Goal Set: ${gameGoal}`);
@@ -1003,22 +1045,15 @@ User Instruction: ${initialUserInstruction}`;
     const sessionInsertSql = `
       INSERT INTO sessions (
         session_id, user_id, theme,
-        -- Old character fields (kept for now)
-        character_name, character_gender, character_image_url,
-        -- Multiplayer fields
         is_multiplayer, max_players, current_player_index, invite_code,
-        -- Goal fields
         game_goal, goal_prerequisites, met_prerequisites, is_goal_met,
         created_at, last_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
-    `; // 16 placeholders
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
+    `; // 12 placeholders
     const sessionParams = [
       sessionId,
       userId, // User who created the session
       theme,
-      characterName, // Still store initial character for reference/SP
-      characterGender,
-      characterImageUrl,
       isGameMultiplayer ? 1 : 0, // is_multiplayer
       isGameMultiplayer ? gameMaxPlayers : null, // max_players
       isGameMultiplayer ? 0 : null, // current_player_index (starts at 0 for MP)
@@ -1049,7 +1084,7 @@ User Instruction: ${initialUserInstruction}`;
       0, // Always starts as player 0
       characterName,
       characterGender,
-      characterImageUrl, // Use the provided URL
+      characterImageUrl || null, // Use the provided URL or null
     ];
     await db.run(playerInsertSql, playerParams);
     console.log(
@@ -1110,18 +1145,19 @@ User Instruction: ${initialUserInstruction}`;
     await db.run("COMMIT");
 
     // --- Prepare Response ---
+    // Ensure the response doesn't include goal/prereqs
+    const { game_goal, goal_prerequisites, ...safeInitialTurnData } =
+      initialTurnData;
     const firstTurn = {
       turnIndex: 0,
-      scenarioText: initialTurnData.narrative,
+      scenarioText: safeInitialTurnData.narrative,
       imageUrl: imageUrl,
-      imagePrompt: initialTurnData.image_prompt,
-      suggestedActions: initialTurnData.suggested_actions || [],
+      imagePrompt: safeInitialTurnData.image_prompt,
+      suggestedActions: safeInitialTurnData.suggested_actions || [],
       actionTaken: null,
-      timeOfDay: initialTurnData.timeOfDay,
-      isSameLocation: initialTurnData.isSameLocation,
-      characters: initialTurnData.characters || [],
-      // --- NEW: Goal info NOT sent in first turn response ---
-      // We only need it stored in the session on the backend
+      timeOfDay: safeInitialTurnData.timeOfDay,
+      isSameLocation: safeInitialTurnData.isSameLocation,
+      characters: safeInitialTurnData.characters || [],
     };
 
     // Conditionally add inviteCode to response for multiplayer games
@@ -1148,7 +1184,7 @@ User Instruction: ${initialUserInstruction}`;
   }
 });
 
-// --- NEW: Endpoint to Join a Multiplayer Game ---
+// --- Endpoint to Join a Multiplayer Game ---
 app.post("/api/game/join", authenticateToken, async (req, res) => {
   const {
     inviteCode,
@@ -1762,7 +1798,7 @@ async function generateImageWithAppropriateProvider(
   }
 }
 
-// --- NEW: Game History Routes ---
+// --- Game History Routes ---
 
 // GET /api/games/history - List user's past game sessions
 app.get("/api/games/history", authenticateToken, async (req, res) => {
@@ -1828,7 +1864,13 @@ app.get(
       // User needs to be either the original creator (in sessions table)
       // OR a player in the session_players table.
       const sessionRow = await db.get(
-        "SELECT s.session_id, s.theme, s.is_multiplayer, s.current_player_index FROM sessions s WHERE s.session_id = ?",
+        `
+        SELECT 
+          s.session_id, s.theme, s.is_multiplayer, s.current_player_index,
+          s.game_goal, s.goal_prerequisites, s.met_prerequisites, s.is_goal_met
+        FROM sessions s 
+        WHERE s.session_id = ?
+      `,
         [sessionId]
       );
 
@@ -1903,7 +1945,7 @@ app.get(
           characterImageUrl: p.character_image_url,
         })),
         history: fullHistory,
-        // --- NEW: Add Goal State ---
+        // --- Add Goal State ---
         gameGoal: sessionRow.game_goal,
         goalPrerequisites: sessionRow.goal_prerequisites
           ? JSON.parse(sessionRow.goal_prerequisites)
@@ -1933,7 +1975,7 @@ app.get(
   }
 );
 
-// --- NEW: Delete Game Session Route ---
+// --- Delete Game Session Route ---
 app.delete(
   "/api/games/history/:sessionId",
   authenticateToken,
@@ -1999,7 +2041,7 @@ app.delete(
   }
 );
 
-// --- NEW: Character Image Upload Route ---
+// --- Character Image Upload Route ---
 app.post(
   "/api/images/upload/character",
   authenticateToken,
@@ -2031,7 +2073,7 @@ app.post(
   }
 );
 
-// --- NEW: Character Image Generation Route ---
+// --- Character Image Generation Route ---
 app.post(
   "/api/images/generate/character",
   authenticateToken, // Requires user to be logged in
@@ -2093,7 +2135,7 @@ app.post(
 // --- Health Check  ---
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
-// --- NEW: WebSocket Connection Handling ---
+// --- WebSocket Connection Handling ---
 // Store active connections, mapping sessionId to a map of userId to socket
 // Allows finding specific users or all users in a session
 const sessionSockets = new Map(); // Removed TypeScript syntax
@@ -2181,7 +2223,7 @@ io.on("connection", (socket) => {
           `Removed user ${userId} from session ${sessionId} socket map.`
         );
 
-        // --- NEW: Notify other players in the room ---
+        // --- Notify other players in the room ---
         // We use socket.broadcast.to() to send to everyone in the room *except* the disconnected socket itself
         socket.broadcast.to(sessionId).emit("player_left", { userId });
         console.log(`Notified room ${sessionId} that user ${userId} left.`);
@@ -2201,7 +2243,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// --- NEW: Broadcasting Helper Function ---
+// --- Broadcasting Helper Function ---
 function broadcastSessionUpdate(sessionId, payload) {
   // Removed TypeScript syntax
   console.log(`Broadcasting SESSION_UPDATE to room ${sessionId}`);
@@ -2308,7 +2350,7 @@ async function getFullSessionState(sessionId) {
         characterImageUrl: p.character_image_url,
       })),
       history: history,
-      // --- NEW: Add Goal State ---
+      // --- Add Goal State ---
       gameGoal: session.game_goal,
       goalPrerequisites: session.goal_prerequisites
         ? JSON.parse(session.goal_prerequisites)
@@ -2331,7 +2373,7 @@ async function getFullSessionState(sessionId) {
   }
 }
 
-// --- NEW: Get Basic Session Info via Invite Code (No Auth Required) ---
+// --- Get Basic Session Info via Invite Code (No Auth Required) ---
 app.get("/api/invite/:inviteCode", async (req, res) => {
   const { inviteCode } = req.params;
 
