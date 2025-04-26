@@ -142,13 +142,13 @@ const HomePage: React.FC<HomePageProps> = ({
           {themes.map((theme) => (
             <div
               key={theme.name}
-              className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex flex-col justify-between "
+              className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex flex-col justify-between"
             >
               <div>
-                <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
-                  {theme.emoji} {theme.name}
+                <h3 className="text-2xl uppercase mb-2 text-gray-800 dark:text-gray-100 cormorant-upright-bold text-center tracking-wider">
+                  {theme.name}
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 text-center">
                   {theme.description}
                 </p>
               </div>
@@ -162,7 +162,7 @@ const HomePage: React.FC<HomePageProps> = ({
                     )
                   }
                   disabled={combinedLoading}
-                  className="flex-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-3 border border-gray-400 dark:border-gray-600 text-gray-900 dark:text-white text-xs font-medium rounded-md transition-colors disabled:opacity-50"
+                  className="flex-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-3 border border-gray-400 dark:border-gray-600 text-gray-900 dark:text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50"
                   title={`Start Single Player ${theme.name} Game`}
                 >
                   Single Player
@@ -175,7 +175,7 @@ const HomePage: React.FC<HomePageProps> = ({
                     )
                   }
                   disabled={combinedLoading}
-                  className="flex-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-3 border border-gray-400 dark:border-gray-600 text-gray-900 dark:text-white text-xs font-medium rounded-md transition-colors disabled:opacity-50"
+                  className="flex-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-3 py-3 border border-gray-400 dark:border-gray-600 text-gray-900 dark:text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50"
                   title={`Start Multiplayer ${theme.name} Game`}
                 >
                   Multiplayer

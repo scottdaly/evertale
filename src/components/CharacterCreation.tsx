@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { uploadCharacterImage, generateCharacterImage } from "../services/api";
+import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/solid";
 
 // --- Sample Random Data (Expand as needed) ---
 const firstNames = [
@@ -307,6 +308,8 @@ const CharacterCreation: React.FC<CharacterCreationProps> = ({
   const [lastGeneratedImageUrl, setLastGeneratedImageUrl] = useState<
     string | null
   >(null);
+  // --- NEW: State for accordion visibility ---
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -687,227 +690,256 @@ const CharacterCreation: React.FC<CharacterCreationProps> = ({
           />
         </div>
 
-        {/* --- Character Image Section --- */}
-        <div className="space-y-4 pt-2 border-t border-gray-200 dark:border-gray-700">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 pt-4">
-            Character Image (Optional)
-          </label>
-
-          {/* Image Source Selection */}
-          <div className="flex items-center">
-            <label className={getImageSourceRadioClass("url")}>
-              <input
-                type="radio"
-                name="imageSource"
-                value="url"
-                checked={imageSource === "url"}
-                onChange={() => handleImageSourceChange("url")}
-                className="mr-1 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 disabled:opacity-50"
-                disabled={isLoading || isImageLoading}
-              />
-              Provide URL
-            </label>
-            <label className={getImageSourceRadioClass("upload")}>
-              <input
-                type="radio"
-                name="imageSource"
-                value="upload"
-                checked={imageSource === "upload"}
-                onChange={() => handleImageSourceChange("upload")}
-                className="mr-1 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 disabled:opacity-50"
-                disabled={isLoading || isImageLoading}
-              />
-              Upload File
-            </label>
-            <label
-              className={`${getImageSourceRadioClass("generate")} ${
-                theme === "Unknown" ? "opacity-50 cursor-not-allowed" : ""
-              }`}
-            >
-              <input
-                type="radio"
-                name="imageSource"
-                value="generate"
-                checked={imageSource === "generate"}
-                onChange={() =>
-                  theme !== "Unknown" && handleImageSourceChange("generate")
-                } // Prevent change if theme unknown
-                className="mr-1 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 disabled:opacity-50"
-                disabled={isLoading || isImageLoading || theme === "Unknown"} // Disable radio itself
-              />
-              Generate with AI
-            </label>
-          </div>
-
-          {/* Conditional Input Area */}
-          <div className="mt-2 min-h-[80px]">
-            {imageSource === "url" && (
-              <div>
-                <input
-                  type="url"
-                  id="character-image-url"
-                  value={imageUrl} // Bind directly to imageUrl state for URL source
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://example.com/character.png"
-                  disabled={isLoading || isImageLoading}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Paste a direct link to an image of your character.
-                </p>
-              </div>
+        {/* --- Accordion for Advanced Customization (Image) --- */}
+        <div className="">
+          <button
+            type="button"
+            onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+            className="w-full flex justify-between items-center text-left px-1 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer rounded focus:outline-none focus-visible:ring focus-visible:ring-blue-500 focus-visible:ring-opacity-75"
+            aria-expanded={isAdvancedOpen}
+            aria-controls="advanced-customization-panel"
+          >
+            <span>Advanced Customization</span>
+            {isAdvancedOpen ? (
+              <ChevronUpIcon className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronDownIcon className="h-5 w-5 text-gray-500" />
             )}
+          </button>
 
-            {imageSource === "upload" && (
-              <div className="text-center p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-md">
-                {/* Hidden File Input */}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  accept="image/png, image/jpeg, image/webp, image/gif" // Match allowed types
-                  style={{ display: "none" }} // Hide the default input
-                  disabled={isLoading || isImageLoading}
-                />
-                {/* Visible Button to trigger the hidden input */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()} // Trigger click on hidden input
-                  disabled={isLoading || isImageLoading}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isImageLoading ? "Uploading..." : "Choose Image File"}
-                </button>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  (Max 5MB: JPG, PNG, WEBP, GIF)
-                </p>
-              </div>
-            )}
-
-            {imageSource === "generate" && (
-              <div className="space-y-3">
-                {/* Description Textarea */}
-                <div>
-                  <label
-                    htmlFor="char-desc"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Brief Description (Optional)
-                  </label>
-                  <textarea
-                    id="char-desc"
-                    rows={3}
-                    value={characterDescription}
-                    onChange={(e) => setCharacterDescription(e.target.value)}
-                    placeholder="e.g., wearing worn leather armor, has a scar over left eye, looks determined"
+          {/* Collapsible Panel */}
+          <div
+            id="advanced-customization-panel"
+            className={`overflow-hidden transition-all duration-300 ease-in-out ${
+              isAdvancedOpen
+                ? "max-h-[1000px] opacity-100 pt-4"
+                : "max-h-0 opacity-0"
+            }`} // Adjust max-h if needed
+          >
+            {/* --- Character Image Section (Moved inside accordion) --- */}
+            <div className="space-y-4">
+              {/* Image Source Selection */}
+              <div className="flex items-center">
+                <label className={getImageSourceRadioClass("url")}>
+                  <input
+                    type="radio"
+                    name="imageSource"
+                    value="url"
+                    checked={imageSource === "url"}
+                    onChange={() => handleImageSourceChange("url")}
+                    className="mr-1 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 disabled:opacity-50"
                     disabled={isLoading || isImageLoading}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-50 resize-none"
-                    maxLength={200} // Optional: Limit description length
                   />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Add details to guide the AI portrait generation.
-                  </p>
-                </div>
-                {/* Generate Button Area */}
-                <div className="text-center">
-                  <button
-                    type="button"
-                    onClick={handleGenerateImage}
-                    // Disable button explicitly if theme is unknown, in addition to other checks
+                  Provide URL
+                </label>
+                <label className={getImageSourceRadioClass("upload")}>
+                  <input
+                    type="radio"
+                    name="imageSource"
+                    value="upload"
+                    checked={imageSource === "upload"}
+                    onChange={() => handleImageSourceChange("upload")}
+                    className="mr-1 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 disabled:opacity-50"
+                    disabled={isLoading || isImageLoading}
+                  />
+                  Upload File
+                </label>
+                <label
+                  className={`${getImageSourceRadioClass("generate")} ${
+                    theme === "Unknown" ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="imageSource"
+                    value="generate"
+                    checked={imageSource === "generate"}
+                    onChange={() =>
+                      theme !== "Unknown" && handleImageSourceChange("generate")
+                    } // Prevent change if theme unknown
+                    className="mr-1 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 disabled:opacity-50"
                     disabled={
-                      isLoading ||
-                      isImageLoading ||
-                      !name.trim() ||
-                      !gender ||
-                      theme === "Unknown"
-                    }
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={
-                      theme === "Unknown"
-                        ? "AI Generation disabled (theme unknown)"
-                        : !name.trim() || !gender
-                        ? "Please enter name and select gender first"
-                        : "Generate character portrait"
-                    }
-                  >
-                    {isImageLoading
-                      ? "Generating..."
-                      : "Generate Portrait with AI"}
-                  </button>
-                  {theme === "Unknown" && (
-                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 italic">
-                      AI generation requires a known theme.
+                      isLoading || isImageLoading || theme === "Unknown"
+                    } // Disable radio itself
+                  />
+                  Generate with AI
+                </label>
+              </div>
+
+              {/* Conditional Input Area */}
+              <div className="mt-2 min-h-[80px]">
+                {imageSource === "url" && (
+                  <div>
+                    <input
+                      type="url"
+                      id="character-image-url"
+                      value={imageUrl} // Bind directly to imageUrl state for URL source
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      placeholder="https://example.com/character.png"
+                      disabled={isLoading || isImageLoading}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Paste a direct link to an image of your character.
                     </p>
+                  </div>
+                )}
+
+                {imageSource === "upload" && (
+                  <div className="text-center p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-md">
+                    {/* Hidden File Input */}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      accept="image/png, image/jpeg, image/webp, image/gif" // Match allowed types
+                      style={{ display: "none" }} // Hide the default input
+                      disabled={isLoading || isImageLoading}
+                    />
+                    {/* Visible Button to trigger the hidden input */}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()} // Trigger click on hidden input
+                      disabled={isLoading || isImageLoading}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isImageLoading ? "Uploading..." : "Choose Image File"}
+                    </button>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                      (Max 5MB: JPG, PNG, WEBP, GIF)
+                    </p>
+                  </div>
+                )}
+
+                {imageSource === "generate" && (
+                  <div className="space-y-3">
+                    {/* Description Textarea */}
+                    <div>
+                      <label
+                        htmlFor="char-desc"
+                        className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                      >
+                        Brief Description (Optional)
+                      </label>
+                      <textarea
+                        id="char-desc"
+                        rows={3}
+                        value={characterDescription}
+                        onChange={(e) =>
+                          setCharacterDescription(e.target.value)
+                        }
+                        placeholder="e.g., wearing worn leather armor, has a scar over left eye, looks determined"
+                        disabled={isLoading || isImageLoading}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-50 resize-none"
+                        maxLength={200} // Optional: Limit description length
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Add details to guide the AI portrait generation.
+                      </p>
+                    </div>
+                    {/* Generate Button Area */}
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={handleGenerateImage}
+                        // Disable button explicitly if theme is unknown, in addition to other checks
+                        disabled={
+                          isLoading ||
+                          isImageLoading ||
+                          !name.trim() ||
+                          !gender ||
+                          theme === "Unknown"
+                        }
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                          theme === "Unknown"
+                            ? "AI Generation disabled (theme unknown)"
+                            : !name.trim() || !gender
+                            ? "Please enter name and select gender first"
+                            : "Generate character portrait"
+                        }
+                      >
+                        {isImageLoading
+                          ? "Generating..."
+                          : "Generate Portrait with AI"}
+                      </button>
+                      {theme === "Unknown" && (
+                        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 italic">
+                          AI generation requires a known theme.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Image Preview Area */}
+              {(previewUrl || isImageLoading) && (
+                <div className="relative mt-4 p-2 border border-gray-200 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 flex justify-center items-center min-h-[150px]">
+                  {/* Loading Indicator */}
+                  {isImageLoading && (
+                    <div className="text-gray-500 dark:text-gray-400">
+                      Loading Image...
+                    </div>
+                  )}
+
+                  {/* Image Preview */}
+                  {!isImageLoading && previewUrl && (
+                    <img
+                      src={previewUrl}
+                      alt="Character Preview"
+                      className="max-h-40 max-w-full rounded object-contain"
+                      onError={(e) => {
+                        console.error("Image preview error", e);
+                        setPreviewUrl(null);
+                        setImageError(
+                          "Failed to load image preview. Check URL or file."
+                        );
+                        if (imageSource === "url") setImageUrl("");
+                        setLastGeneratedImageUrl(null); // Also clear generated on error
+                      }}
+                    />
+                  )}
+
+                  {/* Clear Button (Show only when preview exists and not loading) */}
+                  {!isImageLoading && previewUrl && (
+                    <button
+                      type="button"
+                      onClick={handleClearImage}
+                      className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/70 text-white rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-700 focus:ring-white transition-colors"
+                      aria-label="Clear image"
+                      title="Clear image"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Image Preview Area */}
-          {(previewUrl || isImageLoading) && (
-            <div className="relative mt-4 p-2 border border-gray-200 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 flex justify-center items-center min-h-[150px]">
-              {/* Loading Indicator */}
-              {isImageLoading && (
-                <div className="text-gray-500 dark:text-gray-400">
-                  Loading Image...
-                </div>
               )}
 
-              {/* Image Preview */}
-              {!isImageLoading && previewUrl && (
-                <img
-                  src={previewUrl}
-                  alt="Character Preview"
-                  className="max-h-40 max-w-full rounded object-contain"
-                  onError={(e) => {
-                    console.error("Image preview error", e);
-                    setPreviewUrl(null);
-                    setImageError(
-                      "Failed to load image preview. Check URL or file."
-                    );
-                    if (imageSource === "url") setImageUrl("");
-                    setLastGeneratedImageUrl(null); // Also clear generated on error
-                  }}
-                />
-              )}
-
-              {/* Clear Button (Show only when preview exists and not loading) */}
-              {!isImageLoading && previewUrl && (
-                <button
-                  type="button"
-                  onClick={handleClearImage}
-                  className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/70 text-white rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-700 focus:ring-white transition-colors"
-                  aria-label="Clear image"
-                  title="Clear image"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+              {/* Image Error Display */}
+              {imageError && (
+                <p className="text-red-600 dark:text-red-400 text-sm font-medium mt-2">
+                  {imageError}
+                </p>
               )}
             </div>
-          )}
-
-          {/* Image Error Display */}
-          {imageError && (
-            <p className="text-red-600 dark:text-red-400 text-sm font-medium mt-2">
-              {imageError}
-            </p>
-          )}
+            {/* --- End Character Image Section --- */}
+          </div>
         </div>
-        {/* --- End Character Image Section --- */}
+        {/* --- End Accordion --- */}
 
         {/* Form Error Display */}
         {error && (
